@@ -144,7 +144,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes }: K
     const kakao = window.kakao
     const map = mapRef.current
     const clusterer = clusterRef.current
-    if (!kakao?.maps || !map || !clusterer) return
+    if (!mapReady || !kakao?.maps || !map || !clusterer) return
 
     clusterer.clear()
     markersRef.current.forEach((marker) => marker.setMap(null))
@@ -160,7 +160,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes }: K
       return marker
     })
     clusterer.addMarkers(markersRef.current)
-  }, [radiusFacilities, allTypes, measureMode])
+  }, [radiusFacilities, allTypes, measureMode, mapReady])
 
   useEffect(() => {
     if (!selected || !mapRef.current || !window.kakao?.maps || selected.latitude == null || selected.longitude == null) return
