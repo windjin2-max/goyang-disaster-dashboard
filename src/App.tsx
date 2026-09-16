@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx'
 import {
   Activity, Building2, CheckCircle2, ChevronRight, CircleGauge, Database, Download,
   FileDown, HardDrive, History, LayoutDashboard, ListChecks, Map as MapIcon,
-  LocateFixed, MapPin, Menu, Pencil, Plus, RadioTower, RefreshCcw, Search, SlidersHorizontal,
+  LocateFixed, LogOut, MapPin, Menu, Pencil, Plus, RadioTower, RefreshCcw, Search, SlidersHorizontal,
   Upload, X,
 } from 'lucide-react'
 import KakaoMap from './KakaoMap'
@@ -72,7 +72,7 @@ function normalizeImportedRow(row: Record<string, unknown>, index: number, sourc
   }
 }
 
-export default function App() {
+export default function App({ onSignOut }: { onSignOut?: () => void | Promise<void> }) {
   const [view, setView] = useState<ViewName>('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [baseFacilities, setBaseFacilities] = useState<Facility[]>([])
@@ -302,7 +302,7 @@ export default function App() {
         <header className="topbar">
           <button className="mobile-menu" onClick={() => setSidebarOpen((value) => !value)} aria-label="메뉴 열기">{sidebarOpen ? <X /> : <Menu />}</button>
           <div className="page-heading"><h1>{navigation.find((item) => item.id === view)?.label}</h1><p>{dataInfo.sourceFile || '시설물 데이터를 불러오는 중입니다'} · 기준일 {dataInfo.generatedAt || '-'}</p></div>
-          <div className="top-actions"><button className="button secondary" onClick={exportCsv}><Download size={17} />CSV 내보내기</button><button className="button primary" onClick={() => goToMap()}><MapPin size={17} />지도 열기</button></div>
+          <div className="top-actions"><button className="button secondary" onClick={exportCsv}><Download size={17} />CSV 내보내기</button><button className="button primary" onClick={() => goToMap()}><MapPin size={17} />지도 열기</button>{onSignOut && <button className="button secondary signout-button" onClick={() => void onSignOut()}><LogOut size={17} />로그아웃</button>}</div>
         </header>
 
         <div className="content">
