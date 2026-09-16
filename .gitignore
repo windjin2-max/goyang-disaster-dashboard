@@ -5,3 +5,4 @@ dist/
 *.log
 *.tsbuildinfo
 outputs/
+site-package.tar.gz
