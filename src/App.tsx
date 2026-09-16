@@ -239,9 +239,9 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? 'is-open' : ''}`}>
-        <div className="brand"><div className="brand-mark"><RadioTower size={21} /></div><div><strong>재난 예·경보시설물 통합관리</strong><span>고양시 상황판</span></div></div>
+        <button className="brand" onClick={() => { setView('dashboard'); setSidebarOpen(false) }} aria-label="통합 대시보드로 이동"><div className="brand-mark"><RadioTower size={21} /></div><div><strong>재난 예·경보시설물 통합관리</strong><span>고양시 상황판</span></div></button>
         <nav className="main-nav" aria-label="주요 화면">
-          {navigation.map(({ id, label, icon: Icon }) => <button key={id} className={view === id ? 'is-active' : ''} onClick={() => { setView(id); setSidebarOpen(false) }}><Icon size={19} /><span>{label}</span></button>)}
+          {navigation.map(({ id, label, icon: Icon }) => <button key={id} className={view === id ? 'is-active' : ''} onClick={() => { if (id === 'map') goToMap(); else setView(id); setSidebarOpen(false) }}><Icon size={19} /><span>{label}</span></button>)}
         </nav>
         <div className="sidebar-status"><HardDrive size={17} /><div><strong>브라우저 저장</strong><span>변경 내용은 이 기기에만 저장됩니다.</span></div></div>
       </aside>

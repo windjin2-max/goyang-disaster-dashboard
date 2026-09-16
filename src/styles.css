@@ -35,7 +35,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 230px minmax(0, 1fr); }
 .sidebar { position: sticky; top: 0; z-index: 30; height: 100vh; padding: 22px 14px; display: flex; flex-direction: column; background: linear-gradient(180deg, var(--navy-900), var(--navy-950)); color: #f4f8ff; }
-.brand { display: flex; align-items: center; gap: 11px; padding: 0 8px 22px; border-bottom: 1px solid rgba(255,255,255,.09); }
+.brand { width: 100%; display: flex; align-items: center; gap: 11px; padding: 0 8px 22px; border: 0; border-bottom: 1px solid rgba(255,255,255,.09); background: transparent; color: inherit; cursor: pointer; text-align: left; }
+.brand:hover strong { color: #76c9ff; }
 .brand-mark { width: 40px; height: 40px; flex: 0 0 40px; display: grid; place-items: center; border-radius: 12px; background: linear-gradient(145deg, #3795ff, #1761bf); box-shadow: 0 8px 18px rgba(0,0,0,.2); }
 .brand strong, .brand span { display: block; }
 .brand strong { font-size: .92rem; font-weight: 600; }
