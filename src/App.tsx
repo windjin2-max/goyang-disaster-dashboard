@@ -281,7 +281,7 @@ export default function App() {
                   <header className="panel-header"><div><span className="eyebrow">행정구역</span><h2>구별 시설 현황</h2></div><CircleGauge size={21} /></header>
                   <div className="district-visual" style={{ '--dongyang': `${(districtCounts.find(([name]) => name === '덕양구')?.[1] ?? 0) / Math.max(1, facilities.length) * 100}%` } as CSSProperties}>
                     <div className="donut"><div><strong>{facilities.length}</strong><span>전체 시설</span></div></div>
-                    <div className="district-list">{districtCounts.map(([district, count]) => <button key={district} onClick={() => goToMap({ district })}><span>{district}</span><strong>{count}개</strong><ChevronRight size={15} /></button>)}</div>
+                    <div className="district-list">{districtCounts.map(([district, count]) => <button key={district} onClick={() => goToMap({ district })}><span>{district === '미분류' ? '관외' : district}</span><strong>{count}개</strong><ChevronRight size={15} /></button>)}</div>
                   </div>
                 </article>
 
