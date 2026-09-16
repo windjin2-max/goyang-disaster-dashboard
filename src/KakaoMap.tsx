@@ -132,7 +132,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes }: K
           <div className="map-place-label place-one">덕양구</div>
           <div className="map-place-label place-two">일산동구</div>
           <div className="map-place-label place-three">일산서구</div>
-          {radiusFacilities.slice(0, 180).map((facility) => (
+          {radiusFacilities.map((facility) => (
             <button
               className={`fallback-marker ${selected?.id === facility.id ? 'is-selected' : ''}`}
               key={facility.id}
