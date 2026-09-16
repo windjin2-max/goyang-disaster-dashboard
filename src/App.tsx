@@ -238,7 +238,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? 'is-open' : ''}`}>
-        <div className="brand"><div className="brand-mark"><RadioTower size={21} /></div><div><strong>재난시설 통합관리</strong><span>고양시 상황판</span></div></div>
+        <div className="brand"><div className="brand-mark"><RadioTower size={21} /></div><div><strong>재난 예·경보시설물 통합관리</strong><span>고양시 상황판</span></div></div>
         <nav className="main-nav" aria-label="주요 화면">
           {navigation.map(({ id, label, icon: Icon }) => <button key={id} className={view === id ? 'is-active' : ''} onClick={() => { setView(id); setSidebarOpen(false) }}><Icon size={19} /><span>{label}</span></button>)}
         </nav>
