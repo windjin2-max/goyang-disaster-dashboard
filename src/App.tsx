@@ -12,6 +12,7 @@ import type { ChangeRecord, Facility, FacilityData, Filters, ViewName } from './
 import { colorForType, downloadText, filterFacilities, formatCoordinate, HISTORY_KEY, STORAGE_KEY, toCsv } from './utils'
 
 const emptyFilters: Filters = { query: '', type: '', status: '', district: '', agency: '' }
+const defaultMapFilters: Filters = { ...emptyFilters, status: '운영중' }
 
 function readStoredFacilities(): Facility[] | null {
   try {
@@ -71,7 +72,7 @@ export default function App() {
   const [baseFacilities, setBaseFacilities] = useState<Facility[]>([])
   const [facilities, setFacilities] = useState<Facility[]>([])
   const [dataInfo, setDataInfo] = useState({ sourceFile: '', generatedAt: '' })
-  const [filters, setFilters] = useState<Filters>(emptyFilters)
+  const [filters, setFilters] = useState<Filters>(defaultMapFilters)
   const [selected, setSelected] = useState<Facility | null>(null)
   const [editing, setEditing] = useState<Facility | null | undefined>(undefined)
   const [history, setHistory] = useState<ChangeRecord[]>(readHistory)
@@ -306,7 +307,7 @@ export default function App() {
                 <label className="field"><span>운영 상태</span><select value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}><option value="">전체 상태</option><option>운영중</option><option>점검필요</option><option>비활성</option></select></label>
                 <label className="field"><span>행정구역</span><select value={filters.district} onChange={(event) => setFilters((current) => ({ ...current, district: event.target.value }))}><option value="">고양시 전체</option>{districts.map((value) => <option key={value}>{value}</option>)}</select></label>
                 <label className="field"><span>담당 기관</span><select value={filters.agency} onChange={(event) => setFilters((current) => ({ ...current, agency: event.target.value }))}><option value="">전체 기관</option>{agencies.map((value) => <option key={value}>{value}</option>)}</select></label>
-                <button className="button secondary full" onClick={() => setFilters(emptyFilters)}><RefreshCcw size={16} />필터 초기화</button>
+                <button className="button secondary full" onClick={() => setFilters(defaultMapFilters)}><RefreshCcw size={16} />필터 초기화</button>
                 <div className="filter-summary"><strong>{filtered.length.toLocaleString('ko-KR')}</strong><span>개 시설 표시 중</span></div>
               </aside>
 
