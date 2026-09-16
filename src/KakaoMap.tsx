@@ -1,0 +1,173 @@
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { Crosshair, KeyRound, LocateFixed, Minus, Plus, Printer, Ruler } from 'lucide-react'
+import type { Facility } from './types'
+import { colorForType, haversineKm } from './utils'
+
+interface KakaoMapProps {
+  facilities: Facility[]
+  selected: Facility | null
+  onSelect: (facility: Facility) => void
+  allTypes: string[]
+}
+
+const KAKAO_KEY = import.meta.env.VITE_KAKAO_MAP_APP_KEY as string | undefined
+
+function loadKakao(key: string) {
+  return new Promise<void>((resolve, reject) => {
+    if (window.kakao?.maps) {
+      window.kakao.maps.load(resolve)
+      return
+    }
+    const existing = document.querySelector<HTMLScriptElement>('script[data-kakao-map]')
+    if (existing) {
+      existing.addEventListener('load', () => window.kakao.maps.load(resolve), { once: true })
+      existing.addEventListener('error', () => reject(new Error('카카오 지도 스크립트를 불러오지 못했습니다.')), { once: true })
+      return
+    }
+    const script = document.createElement('script')
+    script.dataset.kakaoMap = 'true'
+    script.async = true
+    script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(key)}&autoload=false&libraries=clusterer,services,drawing`
+    script.onload = () => window.kakao.maps.load(resolve)
+    script.onerror = () => reject(new Error('카카오 지도 스크립트를 불러오지 못했습니다.'))
+    document.head.appendChild(script)
+  })
+}
+
+function markerSvg(color: string) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="34" height="42" viewBox="0 0 34 42"><path fill="${color}" stroke="white" stroke-width="2" d="M17 1C8.2 1 1 8.2 1 17c0 11.9 16 24 16 24s16-12.1 16-24C33 8.2 25.8 1 17 1Z"/><circle cx="17" cy="17" r="6" fill="white"/></svg>`
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
+}
+
+export default function KakaoMap({ facilities, selected, onSelect, allTypes }: KakaoMapProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<any>(null)
+  const clusterRef = useRef<any>(null)
+  const markersRef = useRef<any[]>([])
+  const [mapError, setMapError] = useState('')
+  const [measureMode, setMeasureMode] = useState(false)
+  const [measurePoints, setMeasurePoints] = useState<Facility[]>([])
+  const [radiusKm, setRadiusKm] = useState(2)
+  const [radiusCenter, setRadiusCenter] = useState<Facility | null>(null)
+
+  const facilitiesWithCoords = useMemo(
+    () => facilities.filter((item) => item.latitude != null && item.longitude != null),
+    [facilities],
+  )
+  const measuredDistance = measurePoints.length === 2 ? haversineKm(measurePoints[0], measurePoints[1]) : null
+  const radiusFacilities = useMemo(() => {
+    if (!radiusCenter) return facilitiesWithCoords
+    return facilitiesWithCoords.filter((facility) => (haversineKm(radiusCenter, facility) ?? Infinity) <= radiusKm)
+  }, [facilitiesWithCoords, radiusCenter, radiusKm])
+
+  const handleSelection = (facility: Facility) => {
+    onSelect(facility)
+    if (measureMode) {
+      setMeasurePoints((current) => current.length >= 2 ? [facility] : [...current, facility])
+    }
+  }
+
+  useEffect(() => {
+    if (!KAKAO_KEY || !containerRef.current) return
+    let cancelled = false
+    loadKakao(KAKAO_KEY)
+      .then(() => {
+        if (cancelled || !containerRef.current) return
+        const kakao = window.kakao
+        const map = new kakao.maps.Map(containerRef.current, {
+          center: new kakao.maps.LatLng(37.6584, 126.8320),
+          level: 8,
+        })
+        mapRef.current = map
+        clusterRef.current = new kakao.maps.MarkerClusterer({ map, averageCenter: true, minLevel: 6 })
+      })
+      .catch((error) => setMapError(error instanceof Error ? error.message : '지도를 불러오지 못했습니다.'))
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    const kakao = window.kakao
+    const map = mapRef.current
+    const clusterer = clusterRef.current
+    if (!kakao?.maps || !map || !clusterer) return
+
+    clusterer.clear()
+    markersRef.current.forEach((marker) => marker.setMap(null))
+    markersRef.current = radiusFacilities.map((facility) => {
+      const color = colorForType(facility.type, allTypes)
+      const image = new kakao.maps.MarkerImage(markerSvg(color), new kakao.maps.Size(34, 42), { offset: new kakao.maps.Point(17, 41) })
+      const marker = new kakao.maps.Marker({
+        position: new kakao.maps.LatLng(facility.latitude, facility.longitude),
+        title: facility.name,
+        image,
+      })
+      kakao.maps.event.addListener(marker, 'click', () => handleSelection(facility))
+      return marker
+    })
+    clusterer.addMarkers(markersRef.current)
+  }, [radiusFacilities, allTypes, measureMode])
+
+  useEffect(() => {
+    if (!selected || !mapRef.current || !window.kakao?.maps || selected.latitude == null || selected.longitude == null) return
+    mapRef.current.panTo(new window.kakao.maps.LatLng(selected.latitude, selected.longitude))
+  }, [selected])
+
+  const zoom = (delta: number) => {
+    if (mapRef.current) mapRef.current.setLevel(Math.max(1, mapRef.current.getLevel() + delta))
+  }
+
+  const positionPercent = (facility: Facility) => {
+    const lng = facility.longitude ?? 126.832
+    const lat = facility.latitude ?? 37.658
+    const left = Math.max(4, Math.min(96, ((lng - 126.68) / 0.32) * 100))
+    const top = Math.max(5, Math.min(95, 100 - ((lat - 37.54) / 0.23) * 100))
+    return { left: `${left}%`, top: `${top}%` }
+  }
+
+  return (
+    <div className="map-stage">
+      {KAKAO_KEY && !mapError ? <div ref={containerRef} className="kakao-map" aria-label="카카오 지도" /> : (
+        <div className="fallback-map" role="img" aria-label="시설물 위치 미리보기 지도">
+          <div className="fallback-map-grid" />
+          <div className="map-place-label place-one">덕양구</div>
+          <div className="map-place-label place-two">일산동구</div>
+          <div className="map-place-label place-three">일산서구</div>
+          {radiusFacilities.slice(0, 180).map((facility) => (
+            <button
+              className={`fallback-marker ${selected?.id === facility.id ? 'is-selected' : ''}`}
+              key={facility.id}
+              style={{ ...positionPercent(facility), '--marker-color': colorForType(facility.type, allTypes) } as CSSProperties}
+              onClick={() => handleSelection(facility)}
+              aria-label={`${facility.name}, ${facility.type}`}
+              title={facility.name}
+            />
+          ))}
+          <div className="map-key-message">
+            <KeyRound size={17} aria-hidden="true" />
+            <span>{mapError || '카카오 JavaScript 키를 설정하면 실제 지도가 표시됩니다.'}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="map-toolbar map-toolbar-right" aria-label="지도 도구">
+        <button className="icon-button" onClick={() => zoom(-1)} aria-label="지도 확대"><Plus size={18} /></button>
+        <button className="icon-button" onClick={() => zoom(1)} aria-label="지도 축소"><Minus size={18} /></button>
+        <button className={`icon-button ${measureMode ? 'is-active' : ''}`} onClick={() => { setMeasureMode((value) => !value); setMeasurePoints([]) }} aria-label="거리 측정"><Ruler size={18} /></button>
+        <button className={`icon-button ${radiusCenter ? 'is-active' : ''}`} onClick={() => setRadiusCenter(selected)} disabled={!selected} aria-label="선택 시설 기준 반경 검색"><Crosshair size={18} /></button>
+        <button className="icon-button" onClick={() => window.print()} aria-label="지도 인쇄"><Printer size={18} /></button>
+      </div>
+
+      <div className="map-result-strip" aria-live="polite">
+        <span><LocateFixed size={15} /> 표시 시설 <b>{radiusFacilities.length.toLocaleString('ko-KR')}</b>개</span>
+        {measureMode && <span>거리측정: {measurePoints.length === 0 ? '첫 시설 선택' : measurePoints.length === 1 ? '두 번째 시설 선택' : `${measurePoints[0].name} ↔ ${measurePoints[1].name} ${measuredDistance?.toFixed(2)}km`}</span>}
+        {radiusCenter && (
+          <label className="radius-control">{radiusCenter.name} 기준
+            <input type="range" min="0.5" max="10" step="0.5" value={radiusKm} onChange={(event) => setRadiusKm(Number(event.target.value))} />
+            <b>{radiusKm}km</b>
+            <button type="button" onClick={() => setRadiusCenter(null)}>해제</button>
+          </label>
+        )}
+      </div>
+    </div>
+  )
+}
