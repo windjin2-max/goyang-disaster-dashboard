@@ -44,4 +44,4 @@ export interface ChangeRecord {
   summary: string
 }
 
-export type ViewName = 'dashboard' | 'map' | 'facilities'
+export type ViewName = 'dashboard' | 'map' | 'nearby' | 'facilities'

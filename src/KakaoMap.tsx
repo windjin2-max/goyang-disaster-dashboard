@@ -8,6 +8,16 @@ interface KakaoMapProps {
   selected: Facility | null
   onSelect: (facility: Facility) => void
   allTypes: string[]
+  searchRequest?: { address: string; id: number } | null
+  searchRadiusKm?: number
+  highlightedFacilityIds?: Set<string>
+  onAddressResolved?: (location: SearchLocation | null, error?: string) => void
+}
+
+interface SearchLocation {
+  address: string
+  latitude: number
+  longitude: number
 }
 
 interface BoundaryFeature {
@@ -46,12 +56,14 @@ function markerSvg(color: string) {
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
 }
 
-export default function KakaoMap({ facilities, selected, onSelect, allTypes }: KakaoMapProps) {
+export default function KakaoMap({ facilities, selected, onSelect, allTypes, searchRequest, searchRadiusKm = 1, highlightedFacilityIds, onAddressResolved }: KakaoMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const clusterRef = useRef<any>(null)
   const markersRef = useRef<any[]>([])
   const boundaryRef = useRef<any[]>([])
+  const searchMarkerRef = useRef<any>(null)
+  const searchCircleRef = useRef<any>(null)
   const [mapReady, setMapReady] = useState(false)
   const [boundaryFeatures, setBoundaryFeatures] = useState<BoundaryFeature[]>([])
   const [mapError, setMapError] = useState('')
@@ -59,6 +71,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes }: K
   const [measurePoints, setMeasurePoints] = useState<Facility[]>([])
   const [radiusKm, setRadiusKm] = useState(2)
   const [radiusCenter, setRadiusCenter] = useState<Facility | null>(null)
+  const [searchPoint, setSearchPoint] = useState<SearchLocation | null>(null)
 
   useEffect(() => {
     fetch(`${import.meta.env.BASE_URL}data/goyang-boundary.json`)
@@ -132,13 +145,63 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes }: K
         })
       })
     })
-    map.setBounds(bounds, 36, 36, 36, 36)
+    if (!searchPoint) map.setBounds(bounds, 36, 36, 36, 36)
 
     return () => {
       boundaryRef.current.forEach((polygon) => polygon.setMap(null))
       boundaryRef.current = []
     }
-  }, [boundaryFeatures, mapReady])
+  }, [boundaryFeatures, mapReady, searchPoint])
+
+  useEffect(() => {
+    const kakao = window.kakao
+    const map = mapRef.current
+    if (!mapReady || !kakao?.maps || !map) return
+    if (!searchRequest) {
+      setSearchPoint(null)
+      onAddressResolved?.(null)
+      return
+    }
+    if (!kakao.maps.services?.Geocoder) {
+      onAddressResolved?.(null, '카카오 주소 검색 서비스를 사용할 수 없습니다.')
+      return
+    }
+    let cancelled = false
+    const geocoder = new kakao.maps.services.Geocoder()
+    geocoder.addressSearch(searchRequest.address, (results: Array<{ address_name: string; x: string; y: string }>, status: string) => {
+      if (cancelled) return
+      if (status === kakao.maps.services.Status.OK && results[0]) {
+        const point = { address: results[0].address_name || searchRequest.address, longitude: Number(results[0].x), latitude: Number(results[0].y) }
+        setSearchPoint(point)
+        onAddressResolved?.(point)
+      } else {
+        setSearchPoint(null)
+        onAddressResolved?.(null, '주소를 찾을 수 없습니다. 도로명이나 지번 주소를 확인해 주세요.')
+      }
+    })
+    return () => { cancelled = true }
+  }, [searchRequest, mapReady, onAddressResolved])
+
+  useEffect(() => {
+    const kakao = window.kakao
+    const map = mapRef.current
+    if (!mapReady || !kakao?.maps || !map) return
+    searchMarkerRef.current?.setMap(null)
+    searchCircleRef.current?.setMap(null)
+    searchMarkerRef.current = null
+    searchCircleRef.current = null
+    if (!searchPoint) return
+    const center = new kakao.maps.LatLng(searchPoint.latitude, searchPoint.longitude)
+    const image = new kakao.maps.MarkerImage(markerSvg('#e53935'), new kakao.maps.Size(34, 42), { offset: new kakao.maps.Point(17, 41) })
+    searchMarkerRef.current = new kakao.maps.Marker({ map, position: center, title: '검색 위치', image, zIndex: 10 })
+    searchCircleRef.current = new kakao.maps.Circle({ map, center, radius: searchRadiusKm * 1000, strokeWeight: 2, strokeColor: '#e53935', strokeOpacity: 0.9, strokeStyle: 'dash', fillColor: '#e53935', fillOpacity: 0.08 })
+    map.setCenter(center)
+    map.setLevel(searchRadiusKm <= 0.5 ? 4 : searchRadiusKm <= 1 ? 5 : searchRadiusKm <= 2 ? 6 : 7)
+    return () => {
+      searchMarkerRef.current?.setMap(null)
+      searchCircleRef.current?.setMap(null)
+    }
+  }, [searchPoint, searchRadiusKm, mapReady])
 
   useEffect(() => {
     const kakao = window.kakao
@@ -155,12 +218,13 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes }: K
         position: new kakao.maps.LatLng(facility.latitude, facility.longitude),
         title: facility.name,
         image,
+        opacity: highlightedFacilityIds ? (highlightedFacilityIds.has(facility.id) ? 1 : 0.24) : 1,
       })
       kakao.maps.event.addListener(marker, 'click', () => handleSelection(facility))
       return marker
     })
     clusterer.addMarkers(markersRef.current)
-  }, [radiusFacilities, allTypes, measureMode, mapReady])
+  }, [radiusFacilities, allTypes, measureMode, mapReady, highlightedFacilityIds])
 
   useEffect(() => {
     if (!selected || !mapRef.current || !window.kakao?.maps || selected.latitude == null || selected.longitude == null) return
@@ -191,7 +255,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes }: K
             <button
               className={`fallback-marker ${selected?.id === facility.id ? 'is-selected' : ''}`}
               key={facility.id}
-              style={{ ...positionPercent(facility), '--marker-color': colorForType(facility.type, allTypes) } as CSSProperties}
+              style={{ ...positionPercent(facility), '--marker-color': colorForType(facility.type, allTypes), opacity: highlightedFacilityIds ? (highlightedFacilityIds.has(facility.id) ? 1 : 0.2) : 1 } as CSSProperties}
               onClick={() => handleSelection(facility)}
               aria-label={`${facility.name}, ${facility.type}`}
               title={facility.name}

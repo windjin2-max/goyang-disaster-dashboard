@@ -26,7 +26,10 @@ export function filterFacilities(facilities: Facility[], filters: Filters) {
   })
 }
 
-export function haversineKm(a: Facility, b: Facility) {
+export function haversineKm(
+  a: Pick<Facility, 'latitude' | 'longitude'>,
+  b: Pick<Facility, 'latitude' | 'longitude'>,
+) {
   if (a.latitude == null || a.longitude == null || b.latitude == null || b.longitude == null) return null
   const radius = 6371
   const toRad = (value: number) => value * Math.PI / 180

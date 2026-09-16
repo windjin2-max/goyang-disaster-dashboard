@@ -1,18 +1,24 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import * as XLSX from 'xlsx'
 import {
   Activity, Building2, CheckCircle2, ChevronRight, CircleGauge, Database, Download,
   FileDown, HardDrive, History, LayoutDashboard, ListChecks, Map as MapIcon,
-  MapPin, Menu, Pencil, Plus, RadioTower, RefreshCcw, Search, SlidersHorizontal,
+  LocateFixed, MapPin, Menu, Pencil, Plus, RadioTower, RefreshCcw, Search, SlidersHorizontal,
   Upload, X,
 } from 'lucide-react'
 import KakaoMap from './KakaoMap'
 import FacilityModal from './FacilityModal'
 import type { ChangeRecord, Facility, FacilityData, Filters, ViewName } from './types'
-import { colorForType, downloadText, filterFacilities, formatCoordinate, HISTORY_KEY, STORAGE_KEY, toCsv } from './utils'
+import { colorForType, downloadText, filterFacilities, formatCoordinate, haversineKm, HISTORY_KEY, STORAGE_KEY, toCsv } from './utils'
 
 const emptyFilters: Filters = { query: '', type: '', status: '', district: '', agency: '' }
 const defaultMapFilters: Filters = { ...emptyFilters, status: '운영중' }
+
+interface NearbyLocation {
+  address: string
+  latitude: number
+  longitude: number
+}
 
 function readStoredFacilities(): Facility[] | null {
   try {
@@ -78,6 +84,11 @@ export default function App() {
   const [history, setHistory] = useState<ChangeRecord[]>(readHistory)
   const [toast, setToast] = useState('')
   const [page, setPage] = useState(1)
+  const [nearbyAddress, setNearbyAddress] = useState('')
+  const [nearbyRequest, setNearbyRequest] = useState<{ address: string; id: number } | null>(null)
+  const [nearbyLocation, setNearbyLocation] = useState<NearbyLocation | null>(null)
+  const [nearbyError, setNearbyError] = useState('')
+  const [nearbyRadiusKm, setNearbyRadiusKm] = useState(1)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 12
 
@@ -117,6 +128,14 @@ export default function App() {
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize)
   const activeCount = facilities.filter((item) => item.status === '운영중').length
   const coordCount = facilities.filter((item) => item.longitude != null && item.latitude != null).length
+  const nearbyResults = useMemo(() => {
+    if (!nearbyLocation) return []
+    return facilities
+      .map((facility) => ({ facility, distance: haversineKm(nearbyLocation, facility) }))
+      .filter((item): item is { facility: Facility; distance: number } => item.distance != null && item.distance <= nearbyRadiusKm)
+      .sort((a, b) => a.distance - b.distance)
+  }, [facilities, nearbyLocation, nearbyRadiusKm])
+  const nearbyIds = useMemo(() => new Set(nearbyResults.map((item) => item.facility.id)), [nearbyResults])
 
   const notify = (message: string) => setToast(message)
   const addHistory = (facility: Facility, action: ChangeRecord['action'], summary: string) => {
@@ -126,6 +145,34 @@ export default function App() {
     setFilters({ ...emptyFilters, ...nextFilters })
     setView('map')
   }
+  const goToNearby = () => {
+    setFilters(emptyFilters)
+    setSelected(null)
+    setView('nearby')
+  }
+  const searchNearby = (event: FormEvent) => {
+    event.preventDefault()
+    const address = nearbyAddress.trim()
+    if (!address) {
+      setNearbyError('검색할 주소를 입력해 주세요.')
+      return
+    }
+    setNearbyError('')
+    setNearbyLocation(null)
+    setNearbyRequest({ address, id: Date.now() })
+  }
+  const resetNearby = () => {
+    setNearbyAddress('')
+    setNearbyRequest(null)
+    setNearbyLocation(null)
+    setNearbyError('')
+    setNearbyRadiusKm(1)
+    setSelected(null)
+  }
+  const handleAddressResolved = useCallback((location: NearbyLocation | null, error?: string) => {
+    setNearbyLocation(location)
+    setNearbyError(error ?? '')
+  }, [])
   const saveFacility = (facility: Facility) => {
     const exists = facilities.some((item) => item.id === facility.id)
     setFacilities((current) => exists ? current.map((item) => item.id === facility.id ? facility : item) : [facility, ...current])
@@ -237,6 +284,7 @@ export default function App() {
   const navigation = [
     { id: 'dashboard' as const, label: '통합 대시보드', icon: LayoutDashboard },
     { id: 'map' as const, label: '지도 상황판', icon: MapIcon },
+    { id: 'nearby' as const, label: '주변 시설물 검색', icon: LocateFixed },
     { id: 'facilities' as const, label: '시설물 관리', icon: ListChecks },
   ]
 
@@ -245,7 +293,7 @@ export default function App() {
       <aside className={`sidebar ${sidebarOpen ? 'is-open' : ''}`}>
         <button className="brand" onClick={() => { setView('dashboard'); setSidebarOpen(false) }} aria-label="통합 대시보드로 이동"><div className="brand-mark"><RadioTower size={21} /></div><div><strong>재난 예·경보시설물 통합관리</strong><span>고양시 상황판</span></div></button>
         <nav className="main-nav" aria-label="주요 화면">
-          {navigation.map(({ id, label, icon: Icon }) => <button key={id} className={view === id ? 'is-active' : ''} onClick={() => { if (id === 'map') goToMap(); else setView(id); setSidebarOpen(false) }}><Icon size={19} /><span>{label}</span></button>)}
+          {navigation.map(({ id, label, icon: Icon }) => <button key={id} className={view === id ? 'is-active' : ''} onClick={() => { if (id === 'map') goToMap(); else if (id === 'nearby') goToNearby(); else setView(id); setSidebarOpen(false) }}><Icon size={19} /><span>{label}</span></button>)}
         </nav>
         <div className="sidebar-status"><HardDrive size={17} /><div><strong>브라우저 저장</strong><span>변경 내용은 이 기기에만 저장됩니다.</span></div></div>
       </aside>
@@ -323,6 +371,43 @@ export default function App() {
                   <dl className="detail-list"><div><dt>주소</dt><dd>{selected.address || '미등록'}</dd></div><div><dt>좌표</dt><dd>{formatCoordinate(selected.longitude)}, {formatCoordinate(selected.latitude)}</dd></div><div><dt>행정구역</dt><dd>{selected.district}</dd></div><div><dt>관리부서</dt><dd>{selected.agency}</dd></div><div><dt>설치연도</dt><dd>{selected.installedAt || '미등록'}</dd></div><div><dt>상세정보</dt><dd>{selected.detail || '미등록'}</dd></div><div><dt>원본 위치</dt><dd>{selected.sourceSheet} {selected.sourceRow}행</dd></div></dl>
                   <div className="detail-actions"><button className="button primary full" onClick={() => setEditing(selected)}><Pencil size={16} />시설 정보 수정</button><select value={selected.status} onChange={(event) => changeStatus(selected, event.target.value as Facility['status'])} aria-label="운영 상태 변경"><option>운영중</option><option>점검필요</option><option>비활성</option></select></div>
                 </> : <div className="detail-empty"><MapPin size={28} /><h2>시설을 선택해 주세요</h2><p>마커를 선택하면 전체 정보를 확인할 수 있습니다.</p></div>}
+              </aside>
+            </section>
+          )}
+
+          {view === 'nearby' && (
+            <section className="map-layout nearby-layout" aria-label="주변 시설물 검색">
+              <aside className="filter-panel nearby-search-panel">
+                <div className="filter-title"><LocateFixed size={18} /><h2>주소 기준 검색</h2></div>
+                <p className="nearby-help">주소를 검색하면 해당 위치와 반경 안의 시설물을 거리순으로 확인할 수 있습니다.</p>
+                <form className="nearby-search-form" onSubmit={searchNearby}>
+                  <label className="search-field"><Search size={17} /><input value={nearbyAddress} onChange={(event) => setNearbyAddress(event.target.value)} placeholder="도로명 또는 지번 주소" /></label>
+                  <button className="button primary full" type="submit"><Search size={16} />주소 검색</button>
+                </form>
+                <label className="field"><span>검색 반경</span><select value={nearbyRadiusKm} onChange={(event) => setNearbyRadiusKm(Number(event.target.value))}><option value={0.5}>500m</option><option value={1}>1km</option><option value={2}>2km</option><option value={5}>5km</option></select></label>
+                <button className="button secondary full" onClick={resetNearby}><RefreshCcw size={16} />검색 초기화</button>
+                {nearbyError && <div className="nearby-error" role="alert">{nearbyError}</div>}
+                <div className="filter-summary"><strong>{nearbyLocation ? nearbyResults.length.toLocaleString('ko-KR') : facilities.length.toLocaleString('ko-KR')}</strong><span>{nearbyLocation ? `개 시설 · ${nearbyRadiusKm}km 이내` : '개 전체 시설 표시 중'}</span></div>
+              </aside>
+
+              <KakaoMap
+                facilities={facilities}
+                selected={selected}
+                onSelect={setSelected}
+                allTypes={types}
+                searchRequest={nearbyRequest}
+                searchRadiusKm={nearbyRadiusKm}
+                highlightedFacilityIds={nearbyLocation ? nearbyIds : undefined}
+                onAddressResolved={handleAddressResolved}
+              />
+
+              <aside className="detail-panel nearby-results-panel">
+                <header><div><span className="eyebrow">거리순 결과</span><h2>{nearbyLocation ? `${nearbyResults.length.toLocaleString('ko-KR')}개 시설` : '주변 시설물'}</h2><p>{nearbyLocation?.address ?? '주소를 검색하면 결과가 표시됩니다.'}</p></div></header>
+                {!nearbyLocation ? <div className="detail-empty nearby-empty"><LocateFixed size={28} /><h2>검색 위치를 지정해 주세요</h2><p>지도에는 전체 시설물이 먼저 표시됩니다.</p></div> : nearbyResults.length ? (
+                  <div className="nearby-result-list">
+                    {nearbyResults.map(({ facility, distance }) => <button key={facility.id} className={selected?.id === facility.id ? 'is-selected' : ''} onClick={() => setSelected(facility)}><span className="nearby-result-top"><strong>{facility.name}</strong><b>{distance < 1 ? `${Math.round(distance * 1000)}m` : `${distance.toFixed(2)}km`}</b></span><span>{facility.type} · {facility.status}</span><small>{facility.address}</small></button>)}
+                  </div>
+                ) : <div className="detail-empty nearby-empty"><Search size={28} /><h2>반경 안에 시설이 없습니다</h2><p>검색 반경을 넓혀 다시 확인해 주세요.</p></div>}
               </aside>
             </section>
           )}

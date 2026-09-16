@@ -135,6 +135,22 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .filter-summary { margin-top: 14px; padding: 12px; border-radius: 9px; background: var(--navy-900); color: white; text-align: center; }
 .filter-summary strong { font-size: 1.2rem; margin-right: 4px; }
 .filter-summary span { color: #c2cede; font-size: .72rem; }
+.nearby-help { margin: -4px 0 14px; color: var(--muted); font-size: .75rem; line-height: 1.55; }
+.nearby-search-form { display: grid; gap: 9px; }
+.nearby-search-form .button { margin-top: 0; }
+.nearby-error { margin-top: 12px; padding: 10px; border-radius: 8px; background: var(--red-100); color: var(--red-600); font-size: .75rem; line-height: 1.45; }
+.nearby-results-panel { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.nearby-results-panel header { flex: 0 0 auto; }
+.nearby-results-panel header h2 { margin-top: 4px; }
+.nearby-result-list { min-height: 0; overflow-y: auto; display: grid; align-content: start; gap: 7px; padding-top: 12px; }
+.nearby-result-list button { display: grid; gap: 5px; padding: 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); cursor: pointer; text-align: left; }
+.nearby-result-list button:hover, .nearby-result-list button.is-selected { border-color: var(--blue-500); background: var(--blue-100); }
+.nearby-result-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.nearby-result-top strong { font-size: .78rem; line-height: 1.35; }
+.nearby-result-top b { flex: 0 0 auto; color: var(--blue-600); font-size: .72rem; }
+.nearby-result-list button > span:not(.nearby-result-top) { color: #52647a; font-size: .7rem; }
+.nearby-result-list small { color: var(--muted); font-size: .68rem; line-height: 1.4; }
+.nearby-empty { min-height: 300px; }
 .map-stage { position: relative; min-width: 0; min-height: 590px; overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: #dce8e0; }
 .kakao-map, .fallback-map { position: absolute; inset: 0; }
 .fallback-map { overflow: hidden; background: linear-gradient(135deg, #dce8e1, #e9e5d7); }
