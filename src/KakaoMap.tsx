@@ -10,6 +10,13 @@ interface KakaoMapProps {
   allTypes: string[]
 }
 
+interface BoundaryFeature {
+  geometry: {
+    type: 'Polygon' | 'MultiPolygon'
+    coordinates: number[][][] | number[][][][]
+  }
+}
+
 const KAKAO_KEY = import.meta.env.VITE_KAKAO_MAP_APP_KEY as string | undefined
 
 function loadKakao(key: string) {
@@ -44,11 +51,21 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes }: K
   const mapRef = useRef<any>(null)
   const clusterRef = useRef<any>(null)
   const markersRef = useRef<any[]>([])
+  const boundaryRef = useRef<any[]>([])
+  const [mapReady, setMapReady] = useState(false)
+  const [boundaryFeatures, setBoundaryFeatures] = useState<BoundaryFeature[]>([])
   const [mapError, setMapError] = useState('')
   const [measureMode, setMeasureMode] = useState(false)
   const [measurePoints, setMeasurePoints] = useState<Facility[]>([])
   const [radiusKm, setRadiusKm] = useState(2)
   const [radiusCenter, setRadiusCenter] = useState<Facility | null>(null)
+
+  useEffect(() => {
+    fetch(`${import.meta.env.BASE_URL}data/goyang-boundary.json`)
+      .then((response) => response.json())
+      .then((data: { features: BoundaryFeature[] }) => setBoundaryFeatures(data.features))
+      .catch(() => setBoundaryFeatures([]))
+  }, [])
 
   const facilitiesWithCoords = useMemo(
     () => facilities.filter((item) => item.latitude != null && item.longitude != null),
@@ -80,10 +97,48 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes }: K
         })
         mapRef.current = map
         clusterRef.current = new kakao.maps.MarkerClusterer({ map, averageCenter: true, minLevel: 6 })
+        setMapReady(true)
       })
       .catch((error) => setMapError(error instanceof Error ? error.message : '지도를 불러오지 못했습니다.'))
     return () => { cancelled = true }
   }, [])
+
+  useEffect(() => {
+    const kakao = window.kakao
+    const map = mapRef.current
+    if (!mapReady || !kakao?.maps || !map || !boundaryFeatures.length) return
+
+    boundaryRef.current.forEach((polygon) => polygon.setMap(null))
+    const bounds = new kakao.maps.LatLngBounds()
+    boundaryRef.current = boundaryFeatures.flatMap((feature) => {
+      const polygons = feature.geometry.type === 'MultiPolygon'
+        ? feature.geometry.coordinates as number[][][][]
+        : [feature.geometry.coordinates as number[][][]]
+
+      return polygons.map((rings) => {
+        const path = rings.map((ring) => ring.map(([longitude, latitude]) => {
+          const point = new kakao.maps.LatLng(latitude, longitude)
+          bounds.extend(point)
+          return point
+        }))
+        return new kakao.maps.Polygon({
+          map,
+          path,
+          strokeWeight: 3,
+          strokeColor: '#1565c0',
+          strokeOpacity: 0.9,
+          fillColor: '#42a5f5',
+          fillOpacity: 0.08,
+        })
+      })
+    })
+    map.setBounds(bounds, 36, 36, 36, 36)
+
+    return () => {
+      boundaryRef.current.forEach((polygon) => polygon.setMap(null))
+      boundaryRef.current = []
+    }
+  }, [boundaryFeatures, mapReady])
 
   useEffect(() => {
     const kakao = window.kakao

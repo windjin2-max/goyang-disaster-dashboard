@@ -103,7 +103,11 @@ export default function App() {
   useEffect(() => setPage(1), [filters])
 
   const types = useMemo(() => [...new Set(facilities.map((item) => item.type))].sort(), [facilities])
-  const districts = useMemo(() => [...new Set(facilities.map((item) => item.district))].sort(), [facilities])
+  const districts = useMemo(() => [...new Set(facilities.map((item) => item.district))].sort((a, b) => {
+    if (a === '미분류') return 1
+    if (b === '미분류') return -1
+    return a.localeCompare(b, 'ko')
+  }), [facilities])
   const agencies = useMemo(() => [...new Set(facilities.map((item) => item.agency))].sort(), [facilities])
   const filtered = useMemo(() => filterFacilities(facilities, filters), [facilities, filters])
   const typeCounts = useMemo(() => countBy(facilities, 'type'), [facilities])
