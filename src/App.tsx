@@ -81,7 +81,7 @@ export default function App() {
   const pageSize = 12
 
   useEffect(() => {
-    fetch('/data/facilities.json')
+    fetch(`${import.meta.env.BASE_URL}data/facilities.json`)
       .then((response) => response.json())
       .then((data: FacilityData) => {
         setBaseFacilities(data.facilities)
