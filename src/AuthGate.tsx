@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
-import { AlertCircle, LoaderCircle, LockKeyhole, RadioTower, ShieldCheck } from 'lucide-react'
+import { AlertCircle, LoaderCircle, LockKeyhole, Siren } from 'lucide-react'
 import App from './App'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
 
@@ -94,7 +94,7 @@ export default function AuthGate() {
   }
 
   if (checking) {
-    return <div className="auth-loading" role="status"><LoaderCircle size={28} /><span>관리자 로그인 상태를 확인하고 있습니다.</span></div>
+    return <div className="auth-loading" role="status"><LoaderCircle size={28} /><span>로그인 상태를 확인하고 있습니다.</span></div>
   }
 
   if (session) return <App onSignOut={signOut} />
@@ -102,15 +102,14 @@ export default function AuthGate() {
   return (
     <main className="auth-page">
       <section className="auth-intro" aria-label="서비스 안내">
-        <div className="auth-brand"><span><RadioTower size={26} /></span><div><strong>재난 예·경보시설물 통합관리</strong><small>고양시 상황판</small></div></div>
-        <div className="auth-intro-copy"><span className="auth-kicker"><ShieldCheck size={16} />관리자 전용 시스템</span><h1>재난시설 현황을<br />한곳에서 관리합니다.</h1><p>인가된 관리자만 시설물 정보와 지도 상황판에 접근할 수 있습니다.</p></div>
-        <div className="auth-security-note"><LockKeyhole size={19} /><span>로그인 정보는 Supabase 인증을 통해 안전하게 처리됩니다.</span></div>
+        <div className="auth-brand"><span><Siren size={26} /></span><div><strong>재난 예·경보시설물 통합관리</strong><small>고양시 상황판</small></div></div>
+        <div className="auth-intro-copy"><h1>재난 예·경보 시설물 현황을<br />한곳에서 관리합니다.</h1><p>인가된 관리자만 시설물 정보와 지도 상황판에 접근할 수 있습니다.</p></div>
       </section>
 
       <section className="auth-form-side">
         <form className="auth-card" onSubmit={signIn}>
           <div className="auth-card-icon"><LockKeyhole size={24} /></div>
-          <div className="auth-card-heading"><span>ADMIN SIGN IN</span><h2>관리자 로그인</h2><p>등록된 관리자 계정으로 로그인해 주세요.</p></div>
+          <div className="auth-card-heading"><span>SIGN IN</span><h2>로그인</h2><p>등록된 관리자 계정으로 로그인해 주세요.</p></div>
 
           {!isSupabaseConfigured && <div className="auth-error"><AlertCircle size={17} /><span>Supabase 연결 정보가 없습니다. GitHub Secrets 설정을 확인해 주세요.</span></div>}
           {error && <div className="auth-error" role="alert"><AlertCircle size={17} /><span>{error}</span></div>}

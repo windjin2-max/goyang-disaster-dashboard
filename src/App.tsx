@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx'
 import {
   Activity, Building2, CheckCircle2, ChevronRight, CircleGauge, Database, Download,
   FileDown, History, LayoutDashboard, ListChecks, Map as MapIcon,
-  LocateFixed, LogOut, MapPin, Menu, Pencil, Plus, RadioTower, RefreshCcw, Search, SlidersHorizontal,
+  LocateFixed, LogOut, MapPin, Menu, Pencil, Plus, RefreshCcw, Search, Siren, SlidersHorizontal,
   Upload, X,
 } from 'lucide-react'
 import KakaoMap from './KakaoMap'
@@ -278,7 +278,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   return (
     <div className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? 'is-open' : ''}`}>
-        <button className="brand" onClick={() => { setView('dashboard'); setSidebarOpen(false) }} aria-label="통합 대시보드로 이동"><div className="brand-mark"><RadioTower size={21} /></div><div><strong>재난 예·경보시설물 통합관리</strong><span>고양시 상황판</span></div></button>
+        <button className="brand" onClick={() => { setView('dashboard'); setSidebarOpen(false) }} aria-label="통합 대시보드로 이동"><div className="brand-mark"><Siren size={21} /></div><div><strong>재난 예·경보시설물 통합관리</strong><span>고양시 상황판</span></div></button>
         <nav className="main-nav" aria-label="주요 화면">
           {navigation.map(({ id, label, icon: Icon }) => <button key={id} className={view === id ? 'is-active' : ''} onClick={() => { if (id === 'map') goToMap(); else if (id === 'nearby') goToNearby(); else setView(id); setSidebarOpen(false) }}><Icon size={19} /><span>{label}</span></button>)}
         </nav>
