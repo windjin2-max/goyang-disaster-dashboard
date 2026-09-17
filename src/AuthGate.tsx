@@ -26,7 +26,7 @@ export default function AuthGate() {
       return false
     }
     if (!data?.length) {
-      await supabase.auth.signOut()
+      await supabase.auth.signOut({ scope: 'local' })
       setSession(null)
       setError('관리자 권한이 없는 계정입니다.')
       setChecking(false)
@@ -90,7 +90,7 @@ export default function AuthGate() {
 
   const signOut = async () => {
     if (!supabase) return
-    await supabase.auth.signOut()
+    await supabase.auth.signOut({ scope: 'local' })
   }
 
   if (checking) {
