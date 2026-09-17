@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { AlertCircle, LoaderCircle, LockKeyhole, RadioTower, ShieldCheck } from 'lucide-react'
 import App from './App'
@@ -12,6 +12,31 @@ export default function AuthGate() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
 
+  const verifyAdministrator = useCallback(async (nextSession: Session | null) => {
+    if (!supabase || !nextSession) {
+      setSession(null)
+      setChecking(false)
+      return false
+    }
+    const { data, error: accessError } = await supabase.from('facilities').select('id').limit(1)
+    if (accessError) {
+      setSession(null)
+      setError('관리자 권한을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.')
+      setChecking(false)
+      return false
+    }
+    if (!data?.length) {
+      await supabase.auth.signOut()
+      setSession(null)
+      setError('관리자 권한이 없는 계정입니다.')
+      setChecking(false)
+      return false
+    }
+    setSession(nextSession)
+    setChecking(false)
+    return true
+  }, [])
+
   useEffect(() => {
     if (!supabase) {
       setChecking(false)
@@ -19,35 +44,43 @@ export default function AuthGate() {
     }
 
     let active = true
-    void supabase.auth.getSession().then(({ data, error: sessionError }) => {
+    void supabase.auth.getSession().then(async ({ data, error: sessionError }) => {
       if (!active) return
       if (sessionError) setError('로그인 상태를 확인하지 못했습니다. 다시 시도해 주세요.')
-      setSession(data.session)
-      setChecking(false)
+      await verifyAdministrator(data.session)
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession)
-      setChecking(false)
+      if (!nextSession) {
+        setSession(null)
+        setChecking(false)
+        return
+      }
+      setSession((current) => current ? nextSession : current)
     })
 
     return () => {
       active = false
       subscription.unsubscribe()
     }
-  }, [])
+  }, [verifyAdministrator])
 
   const signIn = async (event: FormEvent) => {
     event.preventDefault()
     if (!supabase) return
     setSubmitting(true)
     setError('')
-    const { error: signInError } = await supabase.auth.signInWithPassword({
+    const { data, error: signInError } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password,
     })
     if (signInError) {
       setError('이메일 또는 비밀번호가 올바르지 않습니다.')
+      setSubmitting(false)
+      return
+    }
+    const allowed = await verifyAdministrator(data.session)
+    if (!allowed) {
       setSubmitting(false)
       return
     }

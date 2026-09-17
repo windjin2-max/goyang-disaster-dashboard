@@ -2,14 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import * as XLSX from 'xlsx'
 import {
   Activity, Building2, CheckCircle2, ChevronRight, CircleGauge, Database, Download,
-  FileDown, HardDrive, History, LayoutDashboard, ListChecks, Map as MapIcon,
+  FileDown, History, LayoutDashboard, ListChecks, Map as MapIcon,
   LocateFixed, LogOut, MapPin, Menu, Pencil, Plus, RadioTower, RefreshCcw, Search, SlidersHorizontal,
   Upload, X,
 } from 'lucide-react'
 import KakaoMap from './KakaoMap'
 import FacilityModal from './FacilityModal'
-import type { ChangeRecord, Facility, FacilityData, Filters, ViewName } from './types'
-import { colorForType, downloadText, filterFacilities, formatCoordinate, haversineKm, HISTORY_KEY, STORAGE_KEY, toCsv } from './utils'
+import type { ChangeRecord, Facility, Filters, ViewName } from './types'
+import { fetchFacilities, fetchFacilityHistory, importFacilities, persistFacility } from './lib/facilityRepository'
+import { colorForType, downloadText, filterFacilities, formatCoordinate, haversineKm, toCsv } from './utils'
 
 const emptyFilters: Filters = { query: '', type: '', status: '', district: '', agency: '' }
 const defaultMapFilters: Filters = { ...emptyFilters, status: '운영중' }
@@ -18,20 +19,6 @@ interface NearbyLocation {
   address: string
   latitude: number
   longitude: number
-}
-
-function readStoredFacilities(): Facility[] | null {
-  try {
-    const value = localStorage.getItem(STORAGE_KEY)
-    return value ? JSON.parse(value) as Facility[] : null
-  } catch { return null }
-}
-
-function readHistory(): ChangeRecord[] {
-  try {
-    const value = localStorage.getItem(HISTORY_KEY)
-    return value ? JSON.parse(value) as ChangeRecord[] : []
-  } catch { return [] }
 }
 
 function countBy(items: Facility[], key: keyof Facility) {
@@ -53,7 +40,7 @@ function normalizeImportedRow(row: Record<string, unknown>, index: number, sourc
   if (!name || !address || !Number.isFinite(longitude) || !Number.isFinite(latitude)) return null
   const district = ['덕양구', '일산동구', '일산서구'].find((value) => address.includes(value)) ?? '미분류'
   return {
-    id: `import-${Date.now()}-${index}`,
+    id: `import-${crypto.randomUUID()}`,
     name,
     type: String(row['시설유형'] ?? row['유형'] ?? source),
     sourceType: source,
@@ -75,13 +62,12 @@ function normalizeImportedRow(row: Record<string, unknown>, index: number, sourc
 export default function App({ onSignOut }: { onSignOut?: () => void | Promise<void> }) {
   const [view, setView] = useState<ViewName>('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [baseFacilities, setBaseFacilities] = useState<Facility[]>([])
   const [facilities, setFacilities] = useState<Facility[]>([])
   const [dataInfo, setDataInfo] = useState({ sourceFile: '', generatedAt: '' })
   const [filters, setFilters] = useState<Filters>(defaultMapFilters)
   const [selected, setSelected] = useState<Facility | null>(null)
   const [editing, setEditing] = useState<Facility | null | undefined>(undefined)
-  const [history, setHistory] = useState<ChangeRecord[]>(readHistory)
+  const [history, setHistory] = useState<ChangeRecord[]>([])
   const [toast, setToast] = useState('')
   const [page, setPage] = useState(1)
   const [nearbyAddress, setNearbyAddress] = useState('')
@@ -92,24 +78,21 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 12
 
-  useEffect(() => {
-    fetch(`${import.meta.env.BASE_URL}data/facilities.json`)
-      .then((response) => response.json())
-      .then((data: FacilityData) => {
-        setBaseFacilities(data.facilities)
-        setFacilities(readStoredFacilities() ?? data.facilities)
-        setDataInfo({ sourceFile: data.sourceFile, generatedAt: data.generatedAt })
-        setSelected(data.facilities[0] ?? null)
-      })
-      .catch(() => setToast('시설물 데이터를 불러오지 못했습니다.'))
+  const loadDatabase = useCallback(async () => {
+    try {
+      const [facilityResult, historyResult] = await Promise.all([fetchFacilities(), fetchFacilityHistory()])
+      setFacilities(facilityResult.facilities)
+      setHistory(historyResult)
+      setDataInfo({ sourceFile: 'Supabase 시설물 DB', generatedAt: facilityResult.latestUpdatedAt ? facilityResult.latestUpdatedAt.slice(0, 10) : '-' })
+      setSelected((current) => current ? facilityResult.facilities.find((item) => item.id === current.id) ?? null : facilityResult.facilities[0] ?? null)
+      return true
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : '시설물 데이터를 불러오지 못했습니다.')
+      return false
+    }
   }, [])
 
-  useEffect(() => {
-    if (!facilities.length) return
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(facilities))
-  }, [facilities])
-
-  useEffect(() => localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, 100))), [history])
+  useEffect(() => { void loadDatabase() }, [loadDatabase])
   useEffect(() => { if (toast) { const timer = window.setTimeout(() => setToast(''), 2800); return () => clearTimeout(timer) } }, [toast])
   useEffect(() => setPage(1), [filters])
 
@@ -138,9 +121,6 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   const nearbyIds = useMemo(() => new Set(nearbyResults.map((item) => item.facility.id)), [nearbyResults])
 
   const notify = (message: string) => setToast(message)
-  const addHistory = (facility: Facility, action: ChangeRecord['action'], summary: string) => {
-    setHistory((current) => [{ id: crypto.randomUUID(), facilityId: facility.id, facilityName: facility.name, action, changedAt: new Date().toISOString(), summary }, ...current])
-  }
   const goToMap = (nextFilters: Partial<Filters> = {}) => {
     setFilters({ ...emptyFilters, ...nextFilters })
     setView('map')
@@ -173,30 +153,36 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
     setNearbyLocation(location)
     setNearbyError(error ?? '')
   }, [])
-  const saveFacility = (facility: Facility) => {
+  const saveFacility = async (facility: Facility) => {
     const exists = facilities.some((item) => item.id === facility.id)
-    setFacilities((current) => exists ? current.map((item) => item.id === facility.id ? facility : item) : [facility, ...current])
-    addHistory(facility, exists ? '수정' : '등록', exists ? '시설 기본정보를 수정했습니다.' : '신규 시설을 등록했습니다.')
-    setEditing(undefined)
-    setSelected(facility)
-    notify(exists ? '시설 정보가 수정되었습니다.' : '시설이 등록되었습니다.')
+    try {
+      const result = await persistFacility(facility, exists, exists ? '수정' : '등록', exists ? '시설 기본정보를 수정했습니다.' : '신규 시설을 등록했습니다.')
+      setFacilities((current) => exists ? current.map((item) => item.id === result.facility.id ? result.facility : item) : [result.facility, ...current])
+      setHistory((current) => [result.history, ...current].slice(0, 100))
+      setEditing(undefined)
+      setSelected(result.facility)
+      notify(exists ? '시설 정보가 DB에 저장되었습니다.' : '시설이 DB에 등록되었습니다.')
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '시설물 저장에 실패했습니다.')
+    }
   }
-  const changeStatus = (facility: Facility, status: Facility['status']) => {
+  const changeStatus = async (facility: Facility, status: Facility['status']) => {
     const updated = { ...facility, status }
-    setFacilities((current) => current.map((item) => item.id === facility.id ? updated : item))
-    setSelected(updated)
-    addHistory(updated, '상태변경', `운영 상태를 ${status}(으)로 변경했습니다.`)
-    notify(`운영 상태를 ${status}(으)로 변경했습니다.`)
+    try {
+      const result = await persistFacility(updated, true, '상태변경', `운영 상태를 ${status}(으)로 변경했습니다.`)
+      setFacilities((current) => current.map((item) => item.id === result.facility.id ? result.facility : item))
+      setSelected(result.facility)
+      setHistory((current) => [result.history, ...current].slice(0, 100))
+      notify(`운영 상태를 ${status}(으)로 변경했습니다.`)
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '운영 상태 변경에 실패했습니다.')
+    }
   }
   const exportCsv = () => downloadText(`재난시설_${new Date().toISOString().slice(0, 10)}.csv`, toCsv(facilities), 'text/csv;charset=utf-8')
   const exportJson = () => downloadText(`재난시설_${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(facilities, null, 2), 'application/json')
-  const resetData = () => {
-    if (!confirm('브라우저에 저장된 변경 내용을 모두 지우고 최초 데이터로 되돌릴까요?')) return
-    setFacilities(baseFacilities)
-    localStorage.removeItem(STORAGE_KEY)
-    setHistory([])
-    localStorage.removeItem(HISTORY_KEY)
-    notify('최초 데이터로 복원했습니다.')
+  const reloadData = async () => {
+    const loaded = await loadDatabase()
+    if (loaded) notify('Supabase에서 최신 데이터를 다시 불러왔습니다.')
   }
   const importWorkbook = async (file: File) => {
     try {
@@ -212,8 +198,9 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
       if (!imported.length) throw new Error('필수값이 있는 시설을 찾지 못했습니다.')
       const keys = new Set(facilities.map((item) => `${item.name}|${item.address}|${item.longitude}|${item.latitude}`))
       const newRows = imported.filter((item) => !keys.has(`${item.name}|${item.address}|${item.longitude}|${item.latitude}`))
-      setFacilities((current) => [...newRows, ...current])
-      if (newRows[0]) addHistory(newRows[0], '일괄등록', `${newRows.length}개 시설을 일괄 등록했습니다.`)
+      const savedRows = await importFacilities(newRows)
+      setFacilities((current) => [...savedRows, ...current])
+      setHistory(await fetchFacilityHistory())
       notify(`${newRows.length}개 시설을 추가했습니다. 중복 ${imported.length - newRows.length}개는 제외했습니다.`)
     } catch (error) {
       notify(error instanceof Error ? error.message : '파일을 불러오지 못했습니다.')
@@ -261,20 +248,20 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
     register({
       name: 'update_facility_status',
       title: '시설 운영 상태 변경',
-      description: '시설 ID에 해당하는 시설의 운영 상태를 운영중, 점검필요 또는 비활성으로 변경하고 로컬 변경 이력에 기록합니다.',
+      description: '시설 ID에 해당하는 시설의 운영 상태를 운영중, 점검필요 또는 비활성으로 변경하고 DB 변경 이력에 기록합니다.',
       inputSchema: {
         type: 'object',
         properties: { facilityId: { type: 'string' }, status: { type: 'string', enum: ['운영중', '점검필요', '비활성'] } },
         required: ['facilityId', 'status'], additionalProperties: false,
       },
       annotations: { readOnlyHint: false, untrustedContentHint: false },
-      execute: (input) => {
+      execute: async (input) => {
         if (typeof input !== 'object' || !input) throw new Error('시설 ID와 운영 상태가 필요합니다.')
         const { facilityId, status } = input as { facilityId?: string; status?: Facility['status'] }
         const facility = facilities.find((item) => item.id === facilityId)
         if (!facility) throw new Error('해당 시설을 찾을 수 없습니다.')
         if (!status || !['운영중', '점검필요', '비활성'].includes(status)) throw new Error('올바른 운영 상태가 아닙니다.')
-        changeStatus(facility, status)
+        await changeStatus(facility, status)
         return { facilityId, facilityName: facility.name, status }
       },
     })
@@ -295,7 +282,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
         <nav className="main-nav" aria-label="주요 화면">
           {navigation.map(({ id, label, icon: Icon }) => <button key={id} className={view === id ? 'is-active' : ''} onClick={() => { if (id === 'map') goToMap(); else if (id === 'nearby') goToNearby(); else setView(id); setSidebarOpen(false) }}><Icon size={19} /><span>{label}</span></button>)}
         </nav>
-        <div className="sidebar-status"><HardDrive size={17} /><div><strong>브라우저 저장</strong><span>변경 내용은 이 기기에만 저장됩니다.</span></div></div>
+        <div className="sidebar-status"><Database size={17} /><div><strong>Supabase 연결</strong><span>시설물과 변경 이력을 중앙 DB에 저장합니다.</span></div></div>
       </aside>
 
       <main className="main-area">
@@ -414,7 +401,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
 
           {view === 'facilities' && (
             <section className="view-stack" aria-label="시설물 관리">
-              <div className="local-notice"><HardDrive size={18} /><div><strong>브라우저 저장 방식</strong><span>수정 내용은 현재 기기에만 보관됩니다. 업무 반영 전 반드시 내보내기 파일을 저장해 주세요.</span></div></div>
+              <div className="local-notice"><Database size={18} /><div><strong>Supabase 중앙 저장</strong><span>등록·수정·운영 상태 변경 내용이 관리자 전용 데이터베이스에 즉시 반영됩니다.</span></div></div>
               <article className="panel facility-panel">
                 <div className="facility-toolbar">
                   <label className="search-field table-search"><Search size={17} /><input value={filters.query} onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))} placeholder="시설명·주소 검색" /></label>
@@ -425,7 +412,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
                     <button className="button primary" onClick={() => setEditing(null)}><Plus size={17} />시설 등록</button>
                   </div>
                 </div>
-                <div className="table-meta"><span>총 {filtered.length.toLocaleString('ko-KR')}개</span><button className="text-button danger" onClick={resetData}><RefreshCcw size={14} />최초 데이터 복원</button></div>
+                <div className="table-meta"><span>총 {filtered.length.toLocaleString('ko-KR')}개</span><button className="text-button" onClick={() => void reloadData()}><RefreshCcw size={14} />DB 새로고침</button></div>
                 <div className="table-wrap"><table><thead><tr><th>시설명</th><th>시설 유형</th><th>행정구역</th><th>관리부서</th><th>운영 상태</th><th>좌표</th><th>관리</th></tr></thead><tbody>{pageRows.map((facility) => <tr key={facility.id}><td><button className="facility-name" onClick={() => { setSelected(facility); setView('map') }}><strong>{facility.name}</strong><span>{facility.address}</span></button></td><td>{facility.type}</td><td>{facility.district}</td><td>{facility.agency}</td><td><span className={`status-badge ${facility.status}`}>{facility.status}</span></td><td>{facility.longitude != null && facility.latitude != null ? '등록 완료' : '좌표 없음'}</td><td><button className="icon-button" onClick={() => setEditing(facility)} aria-label={`${facility.name} 수정`}><Pencil size={16} /></button></td></tr>)}</tbody></table></div>
                 {!pageRows.length && <div className="empty-state"><Search size={28} /><h3>검색 결과가 없습니다.</h3><p>검색어 또는 필터를 변경해 주세요.</p></div>}
                 <div className="pagination"><button disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>이전</button><span>{page} / {pageCount}</span><button disabled={page >= pageCount} onClick={() => setPage((value) => value + 1)}>다음</button></div>

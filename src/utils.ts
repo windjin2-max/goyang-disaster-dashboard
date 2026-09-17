@@ -1,8 +1,5 @@
 import type { Facility, Filters } from './types'
 
-export const STORAGE_KEY = 'goyang-disaster-facilities-v1'
-export const HISTORY_KEY = 'goyang-disaster-history-v1'
-
 export const typeColors = [
   '#2f80ed', '#0f9aaa', '#f08a24', '#7b61d1', '#18a76e', '#d34d64',
   '#54728f', '#b07135', '#1e88a8', '#7c8f2c', '#c4579f', '#5367d7',

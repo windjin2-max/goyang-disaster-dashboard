@@ -6,7 +6,7 @@ interface FacilityModalProps {
   facility: Facility | null
   types: string[]
   onClose: () => void
-  onSave: (facility: Facility) => void
+  onSave: (facility: Facility) => void | Promise<void>
 }
 
 const blankFacility = (): Facility => ({
@@ -31,11 +31,12 @@ const blankFacility = (): Facility => ({
 export default function FacilityModal({ facility, types, onClose, onSave }: FacilityModalProps) {
   const [draft, setDraft] = useState<Facility>(() => facility ? { ...facility } : blankFacility())
   const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => setDraft(facility ? { ...facility } : blankFacility()), [facility])
 
   const update = <K extends keyof Facility>(key: K, value: Facility[K]) => setDraft((current) => ({ ...current, [key]: value }))
-  const save = () => {
+  const save = async () => {
     if (!draft.name.trim() || !draft.address.trim() || draft.longitude == null || draft.latitude == null) {
       setError('시설명, 주소, X좌표, Y좌표는 필수입니다.')
       return
@@ -44,7 +45,12 @@ export default function FacilityModal({ facility, types, onClose, onSave }: Faci
       setError('대한민국 경위도 범위에 맞는 좌표를 입력해 주세요.')
       return
     }
-    onSave({ ...draft, name: draft.name.trim(), address: draft.address.trim() })
+    setSaving(true)
+    try {
+      await onSave({ ...draft, name: draft.name.trim(), address: draft.address.trim() })
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -71,7 +77,7 @@ export default function FacilityModal({ facility, types, onClose, onSave }: Faci
           </div>
           <div className="coordinate-note"><MapPin size={16} /> 지도에서 위치 지정은 카카오 지도 키 연결 후 활성화됩니다.</div>
         </div>
-        <footer className="modal-footer"><button className="button secondary" onClick={onClose}>취소</button><button className="button primary" onClick={save}><Save size={17} />저장</button></footer>
+        <footer className="modal-footer"><button className="button secondary" onClick={onClose} disabled={saving}>취소</button><button className="button primary" onClick={() => void save()} disabled={saving}><Save size={17} />{saving ? '저장 중' : '저장'}</button></footer>
       </section>
     </div>
   )
