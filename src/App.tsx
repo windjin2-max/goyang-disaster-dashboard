@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import * as XLSX from 'xlsx'
 import {
   Activity, Building2, CheckCircle2, ChevronRight, CircleGauge, Database, Download,
   FileDown, History, LayoutDashboard, ListChecks, Map as MapIcon,
-  LocateFixed, LogOut, MapPin, Menu, Pencil, Plus, RefreshCcw, Search, Siren, SlidersHorizontal,
+  LocateFixed, LogOut, MapPin, Menu, Pencil, Plus, RefreshCcw, Search, Siren, SlidersHorizontal, TriangleAlert,
   Upload, X,
 } from 'lucide-react'
 import KakaoMap from './KakaoMap'
@@ -111,6 +111,19 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize)
   const activeCount = facilities.filter((item) => item.status === '운영중').length
   const coordCount = facilities.filter((item) => item.longitude != null && item.latitude != null).length
+  const inspectionCount = facilities.filter((item) => item.status === '점검필요').length
+  const missingCoordCount = facilities.length - coordCount
+  const districtGradient = useMemo(() => {
+    if (!facilities.length || !districtCounts.length) return '#dce4ee'
+    const colors = ['#256fd2', '#16a1b3', '#7b61d1', '#e38b2c', '#66768c']
+    let cursor = 0
+    const segments = districtCounts.map(([, count], index) => {
+      const start = cursor
+      cursor += count / facilities.length * 100
+      return `${colors[index % colors.length]} ${start}% ${cursor}%`
+    })
+    return `conic-gradient(${segments.join(', ')})`
+  }, [districtCounts, facilities.length])
   const nearbyResults = useMemo(() => {
     if (!nearbyLocation) return []
     return facilities
@@ -295,21 +308,27 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
         <div className="content">
           {view === 'dashboard' && (
             <section className="view-stack" aria-label="통합 대시보드">
-              <div className="kpi-grid">
-                <button className="kpi-card" onClick={() => goToMap()}><span><Building2 />전체 시설</span><strong>{facilities.length.toLocaleString('ko-KR')}</strong><small>전체 위치 보기 <ChevronRight size={14} /></small></button>
-                <button className="kpi-card" onClick={() => goToMap({ status: '운영중' })}><span><CheckCircle2 />운영 중</span><strong>{activeCount.toLocaleString('ko-KR')}</strong><small>전체의 {facilities.length ? Math.round(activeCount / facilities.length * 100) : 0}%</small></button>
-                <button className="kpi-card" onClick={() => goToMap()}><span><MapPin />좌표 보유</span><strong>{coordCount.toLocaleString('ko-KR')}</strong><small>지도 표시 가능 시설</small></button>
-                <button className="kpi-card" onClick={() => setView('facilities')}><span><Database />시설 유형</span><strong>{types.length.toLocaleString('ko-KR')}</strong><small>유형별 목록 보기 <ChevronRight size={14} /></small></button>
+              <div className="situation-kpi-grid">
+                <button className="situation-kpi tone-blue" onClick={() => goToMap()}><span className="kpi-icon"><Building2 /></span><span className="kpi-copy"><small>전체 시설</small><strong>{facilities.length.toLocaleString('ko-KR')}</strong><em>전체 위치 보기 <ChevronRight size={14} /></em></span></button>
+                <button className="situation-kpi tone-green" onClick={() => goToMap({ status: '운영중' })}><span className="kpi-icon"><CheckCircle2 /></span><span className="kpi-copy"><small>운영 중</small><strong>{activeCount.toLocaleString('ko-KR')}</strong><em>전체의 {facilities.length ? Math.round(activeCount / facilities.length * 100) : 0}%</em></span></button>
+                <button className="situation-kpi tone-orange" onClick={() => goToMap({ status: '점검필요' })}><span className="kpi-icon"><TriangleAlert /></span><span className="kpi-copy"><small>점검 필요</small><strong>{inspectionCount.toLocaleString('ko-KR')}</strong><em>{inspectionCount ? '확인 대상 시설 보기' : '확인 대상 없음'}</em></span></button>
+                <button className="situation-kpi tone-slate" onClick={() => setView('facilities')}><span className="kpi-icon"><MapPin /></span><span className="kpi-copy"><small>좌표 누락</small><strong>{missingCoordCount.toLocaleString('ko-KR')}</strong><em>{missingCoordCount ? '시설 정보 확인 필요' : `전체 ${coordCount.toLocaleString('ko-KR')}개 등록 완료`}</em></span></button>
               </div>
 
-              <div className="dashboard-grid">
-                <article className="panel type-panel">
-                  <header className="panel-header"><div><span className="eyebrow">시설 분포</span><h2>시설 유형별 현황</h2></div><button className="text-button" onClick={() => goToMap()}>지도에서 보기 <ChevronRight size={15} /></button></header>
+              <div className="situation-main-grid">
+                <article className="panel dashboard-map-panel">
+                  <header className="panel-header"><div><span className="eyebrow">고양시 전역</span><h2>시설 분포 지도</h2></div><div className="map-panel-actions"><span>지도 표시 {coordCount.toLocaleString('ko-KR')}개</span><button className="text-button" onClick={() => goToMap()}>상황판 열기 <ChevronRight size={15} /></button></div></header>
+                  <KakaoMap facilities={facilities} selected={null} onSelect={(facility) => { setSelected(facility); goToMap() }} allTypes={types} compact />
+                </article>
+
+                <div className="dashboard-side-column">
+                  <article className="panel type-panel">
+                  <header className="panel-header"><div><span className="eyebrow">유형별 분포</span><h2>시설 유형 현황</h2></div><span className="panel-count">{types.length}개 유형</span></header>
                   <div className="bar-chart">
-                    {typeCounts.slice(0, 8).map(([type, count]) => (
+                    {typeCounts.slice(0, 6).map(([type, count]) => (
                       <button className="bar-row" key={type} onClick={() => goToMap({ type })}>
                         <span className="bar-label"><i style={{ background: colorForType(type, types) }} />{type}</span>
-                        <span className="bar-track"><i style={{ width: `${Math.max(4, count / typeCounts[0][1] * 100)}%`, background: colorForType(type, types) }} /></span>
+                        <span className="bar-track"><i style={{ width: `${Math.max(4, count / Math.max(1, typeCounts[0]?.[1] ?? 1) * 100)}%`, background: colorForType(type, types) }} /></span>
                         <strong>{count}</strong>
                       </button>
                     ))}
@@ -318,20 +337,23 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
 
                 <article className="panel district-panel">
                   <header className="panel-header"><div><span className="eyebrow">행정구역</span><h2>구별 시설 현황</h2></div><CircleGauge size={21} /></header>
-                  <div className="district-visual" style={{ '--dongyang': `${(districtCounts.find(([name]) => name === '덕양구')?.[1] ?? 0) / Math.max(1, facilities.length) * 100}%` } as CSSProperties}>
-                    <div className="donut"><div><strong>{facilities.length}</strong><span>전체 시설</span></div></div>
-                    <div className="district-list">{districtCounts.map(([district, count]) => <button key={district} onClick={() => goToMap({ district })}><span>{district === '미분류' ? '관외' : district}</span><strong>{count}개</strong><ChevronRight size={15} /></button>)}</div>
+                  <div className="district-visual">
+                    <div className="donut" style={{ background: districtGradient }}><div><strong>{facilities.length}</strong><span>전체 시설</span></div></div>
+                    <div className="district-list">{districtCounts.map(([district, count], index) => <button key={district} onClick={() => goToMap({ district })}><i style={{ background: ['#256fd2', '#16a1b3', '#7b61d1', '#e38b2c', '#66768c'][index % 5] }} /><span>{district === '미분류' ? '관외' : district}</span><strong>{count}개</strong><ChevronRight size={15} /></button>)}</div>
                   </div>
                 </article>
+                </div>
+              </div>
 
+              <div className="situation-bottom-grid">
                 <article className="panel status-panel">
                   <header className="panel-header"><div><span className="eyebrow">운영 상태</span><h2>상태별 시설</h2></div><Activity size={21} /></header>
                   <div className="status-list">{statusCounts.map(([status, count]) => <button key={status} onClick={() => goToMap({ status })}><i className={`status-dot ${status}`} /><span>{status}</span><strong>{count}</strong></button>)}</div>
                 </article>
 
                 <article className="panel recent-panel">
-                  <header className="panel-header"><div><span className="eyebrow">로컬 변경</span><h2>최근 수정 이력</h2></div><History size={21} /></header>
-                  {history.length ? <div className="history-list">{history.slice(0, 4).map((item) => <div key={item.id}><span>{item.action}</span><div><strong>{item.facilityName}</strong><small>{new Date(item.changedAt).toLocaleString('ko-KR')}</small></div></div>)}</div> : <div className="empty-compact">아직 로컬 변경 이력이 없습니다.</div>}
+                  <header className="panel-header"><div><span className="eyebrow">최근 활동</span><h2>시설 변경 이력</h2></div><History size={21} /></header>
+                  {history.length ? <div className="history-list">{history.slice(0, 5).map((item) => <div key={item.id}><span>{item.action}</span><div><strong>{item.facilityName}</strong><small>{new Date(item.changedAt).toLocaleString('ko-KR')}</small></div></div>)}</div> : <div className="empty-compact">아직 변경 이력이 없습니다.</div>}
                 </article>
               </div>
             </section>

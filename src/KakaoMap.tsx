@@ -8,6 +8,7 @@ interface KakaoMapProps {
   selected: Facility | null
   onSelect: (facility: Facility) => void
   allTypes: string[]
+  compact?: boolean
   searchRequest?: { address: string; id: number } | null
   searchRadiusKm?: number
   highlightedFacilityIds?: Set<string>
@@ -56,7 +57,7 @@ function markerSvg(color: string) {
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
 }
 
-export default function KakaoMap({ facilities, selected, onSelect, allTypes, searchRequest, searchRadiusKm = 1, highlightedFacilityIds, onAddressResolved }: KakaoMapProps) {
+export default function KakaoMap({ facilities, selected, onSelect, allTypes, compact = false, searchRequest, searchRadiusKm = 1, highlightedFacilityIds, onAddressResolved }: KakaoMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const clusterRef = useRef<any>(null)
@@ -244,7 +245,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, sea
   }
 
   return (
-    <div className="map-stage">
+    <div className={`map-stage ${compact ? 'map-stage-compact' : ''}`}>
       {KAKAO_KEY && !mapError ? <div ref={containerRef} className="kakao-map" aria-label="카카오 지도" /> : (
         <div className="fallback-map" role="img" aria-label="시설물 위치 미리보기 지도">
           <div className="fallback-map-grid" />
@@ -268,15 +269,15 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, sea
         </div>
       )}
 
-      <div className="map-toolbar map-toolbar-right" aria-label="지도 도구">
+      {!compact && <div className="map-toolbar map-toolbar-right" aria-label="지도 도구">
         <button className="icon-button" onClick={() => zoom(-1)} aria-label="지도 확대"><Plus size={18} /></button>
         <button className="icon-button" onClick={() => zoom(1)} aria-label="지도 축소"><Minus size={18} /></button>
         <button className={`icon-button ${measureMode ? 'is-active' : ''}`} onClick={() => { setMeasureMode((value) => !value); setMeasurePoints([]) }} aria-label="거리 측정"><Ruler size={18} /></button>
         <button className={`icon-button ${radiusCenter ? 'is-active' : ''}`} onClick={() => setRadiusCenter(selected)} disabled={!selected} aria-label="선택 시설 기준 반경 검색"><Crosshair size={18} /></button>
         <button className="icon-button" onClick={() => window.print()} aria-label="지도 인쇄"><Printer size={18} /></button>
-      </div>
+      </div>}
 
-      <div className="map-result-strip" aria-live="polite">
+      {!compact && <div className="map-result-strip" aria-live="polite">
         <span><LocateFixed size={15} /> 표시 시설 <b>{radiusFacilities.length.toLocaleString('ko-KR')}</b>개</span>
         {measureMode && <span>거리측정: {measurePoints.length === 0 ? '첫 시설 선택' : measurePoints.length === 1 ? '두 번째 시설 선택' : `${measurePoints[0].name} ↔ ${measurePoints[1].name} ${measuredDistance?.toFixed(2)}km`}</span>}
         {radiusCenter && (
@@ -286,7 +287,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, sea
             <button type="button" onClick={() => setRadiusCenter(null)}>해제</button>
           </label>
         )}
-      </div>
+      </div>}
     </div>
   )
 }
