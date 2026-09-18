@@ -10,7 +10,7 @@ import KakaoMap from './KakaoMap'
 import FacilityModal from './FacilityModal'
 import type { ChangeRecord, Facility, Filters, ViewName } from './types'
 import { fetchFacilities, fetchFacilityHistory, importFacilities, persistFacility } from './lib/facilityRepository'
-import { colorForType, downloadText, filterFacilities, formatCoordinate, haversineKm, toCsv } from './utils'
+import { CCTV_ALL_TYPE, colorForType, downloadText, filterFacilities, formatCoordinate, haversineKm, isCctvType, toCsv } from './utils'
 
 const emptyFilters: Filters = { query: '', type: '', status: '', district: '', agency: '' }
 const defaultMapFilters: Filters = { ...emptyFilters, status: '운영중' }
@@ -105,6 +105,10 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   const agencies = useMemo(() => [...new Set(facilities.map((item) => item.agency))].sort(), [facilities])
   const filtered = useMemo(() => filterFacilities(facilities, filters), [facilities, filters])
   const typeCounts = useMemo(() => countBy(facilities, 'type'), [facilities])
+  const cctvCount = useMemo(() => facilities.filter((item) => isCctvType(item.type)).length, [facilities])
+  const nonCctvTypeCounts = useMemo(() => typeCounts.filter(([type]) => !isCctvType(type)), [typeCounts])
+  const nonCctvTypes = useMemo(() => nonCctvTypeCounts.map(([type]) => type), [nonCctvTypeCounts])
+  const groupedTypeCount = nonCctvTypeCounts.length + (cctvCount ? 1 : 0)
   const districtCounts = useMemo(() => countBy(facilities, 'district'), [facilities])
   const statusCounts = useMemo(() => countBy(facilities, 'status'), [facilities])
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
@@ -323,12 +327,22 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
 
                 <div className="dashboard-side-column">
                   <article className="panel type-panel">
-                  <header className="panel-header"><div><span className="eyebrow">유형별 분포</span><h2>시설 유형 현황</h2></div><span className="panel-count">{types.length}개 유형</span></header>
-                  <div className="bar-chart">
-                    {typeCounts.slice(0, 6).map(([type, count]) => (
+                  <header className="panel-header"><div><span className="eyebrow">유형별 분포</span><h2>시설 유형 현황</h2></div><span className="panel-count">{groupedTypeCount}개 유형</span></header>
+                  <div className="bar-chart cctv-bar-group">
+                    <span className="bar-group-label">CCTV 시설 통합</span>
+                    <button className="bar-row bar-row-featured" onClick={() => goToMap({ type: CCTV_ALL_TYPE })}>
+                      <span className="bar-label"><i />{CCTV_ALL_TYPE}</span>
+                      <span className="bar-track"><i style={{ width: '100%' }} /></span>
+                      <strong>{cctvCount}</strong>
+                    </button>
+                    <small>CCTV 세부 유형 합계 · 전체의 {facilities.length ? (cctvCount / facilities.length * 100).toFixed(1) : 0}%</small>
+                  </div>
+                  <div className="bar-chart other-type-bars">
+                    <span className="bar-group-label">기타 예·경보 시설</span>
+                    {nonCctvTypeCounts.map(([type, count]) => (
                       <button className="bar-row" key={type} onClick={() => goToMap({ type })}>
-                        <span className="bar-label"><i style={{ background: colorForType(type, types) }} />{type}</span>
-                        <span className="bar-track"><i style={{ width: `${Math.max(4, count / Math.max(1, typeCounts[0]?.[1] ?? 1) * 100)}%`, background: colorForType(type, types) }} /></span>
+                        <span className="bar-label"><i style={{ background: colorForType(type, nonCctvTypes) }} />{type}</span>
+                        <span className="bar-track"><i style={{ width: `${count / Math.max(1, nonCctvTypeCounts[0]?.[1] ?? 1) * 100}%`, background: colorForType(type, nonCctvTypes) }} /></span>
                         <strong>{count}</strong>
                       </button>
                     ))}
@@ -364,7 +378,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
               <aside className="filter-panel">
                 <div className="filter-title"><SlidersHorizontal size={18} /><h2>시설 검색·필터</h2></div>
                 <label className="search-field"><Search size={17} /><input value={filters.query} onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))} placeholder="시설명·주소·좌표 검색" /></label>
-                <label className="field"><span>시설 유형</span><select value={filters.type} onChange={(event) => setFilters((current) => ({ ...current, type: event.target.value }))}><option value="">전체 유형</option>{types.map((value) => <option key={value}>{value}</option>)}</select></label>
+                <label className="field"><span>시설 유형</span><select value={filters.type} onChange={(event) => setFilters((current) => ({ ...current, type: event.target.value }))}><option value="">전체 유형</option><optgroup label="통합 유형"><option value={CCTV_ALL_TYPE}>{CCTV_ALL_TYPE}</option></optgroup><optgroup label="세부 유형">{types.map((value) => <option key={value}>{value}</option>)}</optgroup></select></label>
                 <label className="field"><span>운영 상태</span><select value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}><option value="">전체 상태</option><option>운영중</option><option>점검필요</option><option>비활성</option></select></label>
                 <label className="field"><span>행정구역</span><select value={filters.district} onChange={(event) => setFilters((current) => ({ ...current, district: event.target.value }))}><option value="">고양시 전체</option>{districts.map((value) => <option key={value} value={value}>{value === '미분류' ? '관외' : value}</option>)}</select></label>
                 <label className="field"><span>담당 기관</span><select value={filters.agency} onChange={(event) => setFilters((current) => ({ ...current, agency: event.target.value }))}><option value="">전체 기관</option>{agencies.map((value) => <option key={value}>{value}</option>)}</select></label>

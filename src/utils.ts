@@ -5,6 +5,12 @@ export const typeColors = [
   '#54728f', '#b07135', '#1e88a8', '#7c8f2c', '#c4579f', '#5367d7',
 ]
 
+export const CCTV_ALL_TYPE = 'CCTV(전체)'
+
+export function isCctvType(type: string) {
+  return type.trim().toLocaleUpperCase('ko-KR').startsWith('CCTV')
+}
+
 export function colorForType(type: string, allTypes: string[]) {
   const index = Math.max(0, allTypes.indexOf(type))
   return typeColors[index % typeColors.length]
@@ -15,8 +21,10 @@ export function filterFacilities(facilities: Facility[], filters: Filters) {
   return facilities.filter((facility) => {
     const matchesQuery = !query || [facility.name, facility.address, facility.agency, facility.longitude, facility.latitude]
       .join(' ').toLocaleLowerCase('ko-KR').includes(query)
+    const matchesType = !filters.type
+      || (filters.type === CCTV_ALL_TYPE ? isCctvType(facility.type) : facility.type === filters.type)
     return matchesQuery
-      && (!filters.type || facility.type === filters.type)
+      && matchesType
       && (!filters.status || facility.status === filters.status)
       && (!filters.district || facility.district === filters.district)
       && (!filters.agency || facility.agency === filters.agency)
