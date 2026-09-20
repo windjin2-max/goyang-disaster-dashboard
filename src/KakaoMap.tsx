@@ -17,6 +17,7 @@ interface KakaoMapProps {
   disasterPoints?: DisasterMapPoint[]
   disasterAreas?: DisasterArea[]
   layers?: DisasterLayerVisibility
+  enableFloodWms?: boolean
 }
 
 interface SearchLocation {
@@ -64,20 +65,24 @@ function markerSvg(color: string) {
 const defaultLayers: DisasterLayerVisibility = {
   facilities: true,
   rainfall: true,
+  snowfall: true,
   waterLevel: true,
   floodTrace: true,
+  riverFlood: true,
+  urbanFlood: true,
   pumpStations: true,
   population: false,
 }
 
 function pointColor(kind: DisasterMapPoint['kind']) {
   if (kind === 'rainfall') return '#256fd2'
+  if (kind === 'snowfall') return '#38a3c7'
   if (kind === 'waterLevel') return '#0f8f9d'
   if (kind === 'pumpStation') return '#d97706'
   return '#7b61d1'
 }
 
-export default function KakaoMap({ facilities, selected, onSelect, allTypes, compact = false, searchRequest, searchRadiusKm = 1, highlightedFacilityIds, onAddressResolved, disasterPoints = [], disasterAreas = [], layers = defaultLayers }: KakaoMapProps) {
+export default function KakaoMap({ facilities, selected, onSelect, allTypes, compact = false, searchRequest, searchRadiusKm = 1, highlightedFacilityIds, onAddressResolved, disasterPoints = [], disasterAreas = [], layers = defaultLayers, enableFloodWms = true }: KakaoMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const clusterRef = useRef<any>(null)
@@ -259,6 +264,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
     disasterMarkersRef.current = disasterPoints
       .filter((point) => (
         (point.kind === 'rainfall' && layers.rainfall)
+        || (point.kind === 'snowfall' && layers.snowfall)
         || (point.kind === 'waterLevel' && layers.waterLevel)
         || (point.kind === 'pumpStation' && layers.pumpStations)
         || (point.kind === 'population' && layers.population)
@@ -279,7 +285,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
       disasterMarkersRef.current.forEach((marker) => marker.setMap(null))
       disasterMarkersRef.current = []
     }
-  }, [disasterPoints, layers.rainfall, layers.waterLevel, layers.pumpStations, layers.population, mapReady])
+  }, [disasterPoints, layers.rainfall, layers.snowfall, layers.waterLevel, layers.pumpStations, layers.population, mapReady])
 
   useEffect(() => {
     const kakao = window.kakao
@@ -288,27 +294,32 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
 
     disasterAreasRef.current.forEach((polygon) => polygon.setMap(null))
     disasterAreasRef.current = disasterAreas
-      .filter((area) => (area.kind === 'floodTrace' ? layers.floodTrace : layers.population))
+      .filter((area) => (
+        (area.kind === 'floodTrace' && layers.floodTrace)
+        || (area.kind === 'riverFlood' && layers.riverFlood)
+        || (area.kind === 'urbanFlood' && layers.urbanFlood)
+        || (area.kind === 'population' && layers.population)
+      ))
       .map((area) => new kakao.maps.Polygon({
         map,
         path: area.coordinates.map((ring) => ring.map(([longitude, latitude]) => new kakao.maps.LatLng(latitude, longitude))),
         strokeWeight: 2,
-        strokeColor: area.kind === 'floodTrace' ? '#d33f49' : '#7b61d1',
+        strokeColor: area.kind === 'floodTrace' ? '#d33f49' : area.kind === 'riverFlood' ? '#1565c0' : area.kind === 'urbanFlood' ? '#e38b2c' : '#7b61d1',
         strokeOpacity: .82,
-        fillColor: area.kind === 'floodTrace' ? '#ef6a71' : '#8b72df',
-        fillOpacity: area.kind === 'floodTrace' ? .24 : .16,
+        fillColor: area.kind === 'floodTrace' ? '#ef6a71' : area.kind === 'riverFlood' ? '#3f8fe8' : area.kind === 'urbanFlood' ? '#f1a84c' : '#8b72df',
+        fillOpacity: area.kind === 'population' ? .16 : .24,
       }))
 
     return () => {
       disasterAreasRef.current.forEach((polygon) => polygon.setMap(null))
       disasterAreasRef.current = []
     }
-  }, [disasterAreas, layers.floodTrace, layers.population, mapReady])
+  }, [disasterAreas, layers.floodTrace, layers.riverFlood, layers.urbanFlood, layers.population, mapReady])
 
   useEffect(() => {
     const kakao = window.kakao
     const map = mapRef.current
-    if (!mapReady || !kakao?.maps || !map || !layers.floodTrace) {
+    if (!mapReady || !kakao?.maps || !map || !layers.floodTrace || !enableFloodWms) {
       setFloodOverlayImage('')
       return
     }
@@ -341,7 +352,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
       kakao.maps.event.removeListener(map, 'zoom_start', clear)
       setFloodOverlayImage('')
     }
-  }, [layers.floodTrace, mapReady])
+  }, [layers.floodTrace, mapReady, enableFloodWms])
 
   useEffect(() => {
     if (!selected || !mapRef.current || !window.kakao?.maps || selected.latitude == null || selected.longitude == null) return
@@ -380,6 +391,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
           ))}
           {disasterPoints.filter((point) => (
             (point.kind === 'rainfall' && layers.rainfall)
+            || (point.kind === 'snowfall' && layers.snowfall)
             || (point.kind === 'waterLevel' && layers.waterLevel)
             || (point.kind === 'pumpStation' && layers.pumpStations)
             || (point.kind === 'population' && layers.population)

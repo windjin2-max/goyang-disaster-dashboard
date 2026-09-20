@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import * as XLSX from 'xlsx'
 import {
-  Activity, Building2, CheckCircle2, ChevronRight, CircleGauge, CloudRain, Database, Download, Droplets,
+  Activity, Building2, CalendarRange, CheckCircle2, ChevronRight, CircleGauge, CloudRain, Database, Download, Droplets,
   Factory, FileDown, History, Layers3, LayoutDashboard, ListChecks, Map as MapIcon,
   LocateFixed, LogOut, MapPin, Menu, Pencil, Plus, RefreshCcw, Search, Siren, SlidersHorizontal, TriangleAlert, Users,
-  Upload, X,
+  Snowflake, Upload, Waves, X,
 } from 'lucide-react'
 import KakaoMap from './KakaoMap'
 import FacilityModal from './FacilityModal'
-import type { ChangeRecord, DisasterLayerId, DisasterLayerVisibility, DisasterMapPoint, DisasterOverview, Facility, Filters, ViewName } from './types'
+import type { ChangeRecord, DisasterLayerId, DisasterLayerVisibility, DisasterMapPoint, DisasterOverview, Facility, Filters, HistoricalAnalysis, HistoricalMetricFilter, ViewName } from './types'
 import { fetchFacilities, fetchFacilityHistory, importFacilities, persistFacility } from './lib/facilityRepository'
 import { emptyDisasterOverview, fetchDisasterOverview, formatMetric } from './lib/disasterRepository'
+import { emptyHistoricalAnalysis, fetchHistoricalAnalysis, historicalMapAreas, historicalMapPoints } from './lib/historicalRepository'
 import { CCTV_ALL_TYPE, colorForType, downloadText, filterFacilities, formatCoordinate, haversineKm, isCctvType, toCsv } from './utils'
 
 const emptyFilters: Filters = { query: '', type: '', status: '', district: '', agency: '' }
@@ -19,8 +20,11 @@ const GOYANG_DISTRICTS = new Set(['덕양구', '일산동구', '일산서구'])
 const defaultDisasterLayers: DisasterLayerVisibility = {
   facilities: true,
   rainfall: true,
+  snowfall: true,
   waterLevel: true,
   floodTrace: true,
+  riverFlood: true,
+  urbanFlood: true,
   pumpStations: true,
   population: false,
 }
@@ -28,11 +32,24 @@ const defaultDisasterLayers: DisasterLayerVisibility = {
 const layerLabels: { id: DisasterLayerId; label: string }[] = [
   { id: 'facilities', label: '예·경보시설물' },
   { id: 'rainfall', label: '강우 관측' },
+  { id: 'snowfall', label: '적설 관측' },
   { id: 'waterLevel', label: '하천 수위' },
   { id: 'floodTrace', label: '침수흔적도' },
+  { id: 'riverFlood', label: '하천범람' },
+  { id: 'urbanFlood', label: '도시침수' },
   { id: 'pumpStations', label: '배수펌프장' },
   { id: 'population', label: '인구 분포' },
 ]
+
+const historicalSourceLabels: Record<string, string> = {
+  kma_asos: '기상청 ASOS',
+  kma_aws: '기상청 AWS',
+  kma_snow: '기상청 적설',
+  hrfco: '한강홍수통제소',
+  kwater: 'K-water',
+  safemap: '침수흔적도',
+  floodmap: '홍수위험지도',
+}
 
 interface NearbyLocation {
   address: string
@@ -141,6 +158,12 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   const [disasterLoading, setDisasterLoading] = useState(false)
   const [disasterError, setDisasterError] = useState('')
   const [disasterLayers, setDisasterLayers] = useState<DisasterLayerVisibility>(defaultDisasterLayers)
+  const [analysisStart, setAnalysisStart] = useState('2020-01-01')
+  const [analysisEnd, setAnalysisEnd] = useState('2025-12-31')
+  const [analysisMetric, setAnalysisMetric] = useState<HistoricalMetricFilter>('all')
+  const [historicalAnalysis, setHistoricalAnalysis] = useState<HistoricalAnalysis>(() => emptyHistoricalAnalysis())
+  const [historicalLoading, setHistoricalLoading] = useState(false)
+  const [historicalError, setHistoricalError] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 12
 
@@ -177,7 +200,24 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
     }
   }, [])
 
-  useEffect(() => { void loadDisasterData() }, [loadDisasterData])
+  const loadHistorical = useCallback(async () => {
+    if (analysisStart > analysisEnd) {
+      setHistoricalError('분석 시작일은 종료일보다 늦을 수 없습니다.')
+      return
+    }
+    setHistoricalLoading(true)
+    setHistoricalError('')
+    try {
+      setHistoricalAnalysis(await fetchHistoricalAnalysis(analysisStart, analysisEnd))
+    } catch (error) {
+      setHistoricalAnalysis(emptyHistoricalAnalysis(analysisStart, analysisEnd))
+      setHistoricalError(error instanceof Error ? error.message : '과거 재난 분석자료를 불러오지 못했습니다.')
+    } finally {
+      setHistoricalLoading(false)
+    }
+  }, [analysisStart, analysisEnd])
+
+  useEffect(() => { void loadHistorical() }, [loadHistorical])
   useEffect(() => { if (toast) { const timer = window.setTimeout(() => setToast(''), 2800); return () => clearTimeout(timer) } }, [toast])
   useEffect(() => setPage(1), [filters])
 
@@ -225,6 +265,19 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   const risingWaterCount = waterLevelPoints.filter((point) => point.trend === 'up').length
   const pumpStationCount = disasterPoints.filter((point) => point.kind === 'pumpStation').length
   const liveSourceCount = disasterOverview.sources.filter((source) => source.state === 'live').length
+  const goyangFacilities = useMemo(() => facilities.filter((facility) => GOYANG_DISTRICTS.has(facility.district)), [facilities])
+  const historicalPoints = useMemo(() => historicalMapPoints(historicalAnalysis, analysisMetric), [historicalAnalysis, analysisMetric])
+  const historicalAreas = useMemo(() => historicalMapAreas(historicalAnalysis, analysisMetric), [historicalAnalysis, analysisMetric])
+  const historicalLayers = useMemo<DisasterLayerVisibility>(() => ({
+    ...defaultDisasterLayers,
+    population: false,
+    rainfall: analysisMetric === 'all' || analysisMetric === 'rainfall',
+    snowfall: analysisMetric === 'all' || analysisMetric === 'snowfall',
+    waterLevel: analysisMetric === 'all' || analysisMetric === 'waterLevel',
+    floodTrace: analysisMetric === 'all' || analysisMetric === 'flood',
+    riverFlood: analysisMetric === 'all' || analysisMetric === 'flood',
+    urbanFlood: analysisMetric === 'all' || analysisMetric === 'flood',
+  }), [analysisMetric])
   const districtGradient = useMemo(() => {
     if (!facilities.length || !districtCounts.length) return '#dce4ee'
     const colors = ['#256fd2', '#16a1b3', '#7b61d1', '#e38b2c', '#66768c']
@@ -280,8 +333,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
     setNearbyLocation(location)
     setNearbyError(error ?? '')
     setNearbyDisasterOverview(null)
-    if (location) void loadDisasterData(location)
-  }, [loadDisasterData])
+  }, [])
   const saveFacility = async (facility: Facility) => {
     const exists = facilities.some((item) => item.id === facility.id)
     try {
@@ -355,19 +407,17 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
       execute: () => ({ total: facilities.length, active: activeCount, types: types.length, districts: Object.fromEntries(districtCounts) }),
     })
     register({
-      name: 'read_disaster_overview',
-      title: '재난 상황 요약 조회',
-      description: '현재 화면에 수집된 강수, 적설, 하천 수위, 배수펌프장, 인구와 6개 데이터 원천의 연결 상태를 조회합니다.',
+      name: 'read_historical_analysis',
+      title: '재난 이력 분석 조회',
+      description: '현재 선택한 기간의 고양시 강수·적설·하천수위·침수 공간자료 분석 결과와 원천별 적재 상태를 조회합니다.',
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: true, untrustedContentHint: false },
       execute: () => ({
-        generatedAt: disasterOverview.generatedAt,
-        locationLabel: disasterOverview.locationLabel,
-        weather: disasterOverview.weather,
-        population: disasterOverview.population,
-        risingWaterLevelCount: risingWaterCount,
-        pumpStationCount,
-        sources: disasterOverview.sources.map(({ id, label, state, updatedAt, message }) => ({ id, label, state, updatedAt, message })),
+        scope: historicalAnalysis.scope,
+        period: historicalAnalysis.period,
+        generatedAt: historicalAnalysis.generatedAt,
+        summary: historicalAnalysis.summary,
+        sources: historicalAnalysis.sources,
       }),
     })
     register({
@@ -411,11 +461,12 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
       },
     })
     return () => lifecycle.abort()
-  }, [facilities, activeCount, types.length, districtCounts, disasterOverview, risingWaterCount, pumpStationCount])
+  }, [facilities, activeCount, types.length, districtCounts, historicalAnalysis])
 
   const navigation = [
     { id: 'dashboard' as const, label: '통합 대시보드', icon: LayoutDashboard },
     { id: 'map' as const, label: '지도 상황판', icon: MapIcon },
+    { id: 'analysis' as const, label: '재난 이력 분석', icon: CalendarRange },
     { id: 'nearby' as const, label: '주변 시설물 검색', icon: LocateFixed },
     { id: 'facilities' as const, label: '시설물 관리', icon: ListChecks },
   ]
@@ -433,7 +484,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
       <main className="main-area">
         <header className="topbar">
           <button className="mobile-menu" onClick={() => setSidebarOpen((value) => !value)} aria-label="메뉴 열기">{sidebarOpen ? <X /> : <Menu />}</button>
-          <div className="page-heading"><h1>{navigation.find((item) => item.id === view)?.label}</h1><p>{dataInfo.sourceFile || '시설물 데이터를 불러오는 중입니다'} · 기준일 {dataInfo.generatedAt || '-'}</p></div>
+          <div className="page-heading"><h1>{navigation.find((item) => item.id === view)?.label}</h1><p>{view === 'analysis' ? `분석지역 경기도 고양시 · ${analysisStart}~${analysisEnd}` : `${dataInfo.sourceFile || '시설물 데이터를 불러오는 중입니다'} · 기준일 ${dataInfo.generatedAt || '-'}`}</p></div>
           <div className="top-actions"><button className="button secondary" onClick={exportCsv}><Download size={17} />CSV 내보내기</button><button className="button primary" onClick={() => goToMap()}><MapPin size={17} />지도 열기</button>{onSignOut && <button className="button secondary signout-button" onClick={() => void onSignOut()}><LogOut size={17} />로그아웃</button>}</div>
         </header>
 
@@ -442,20 +493,20 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
             <section className="view-stack" aria-label="통합 대시보드">
               <article className="disaster-command-panel">
                 <div className="command-heading">
-                  <div><span className="eyebrow">실시간 재난 관측</span><h2>고양시 재난 상황</h2></div>
-                  <div className="command-sync"><span className={`source-pulse ${liveSourceCount ? 'is-live' : ''}`} />{disasterLoading ? '데이터 갱신 중' : `${liveSourceCount}/6개 API 정상`}</div>
+                  <div><span className="eyebrow">과거 재난·기상 분석</span><h2>고양시 이력 분석 요약</h2></div>
+                  <div className="command-sync"><span className={`source-pulse ${historicalAnalysis.summary.observationCount ? 'is-live' : ''}`} />{historicalLoading ? '분석자료 조회 중' : `${analysisStart.slice(0, 4)}~${analysisEnd.slice(0, 4)}년 · 고양시 한정`}</div>
                 </div>
                 <div className="command-metrics">
-                  <div><span><CloudRain />시간 강수</span><strong>{formatMetric(disasterOverview.weather.rainfall1h, 'mm')}</strong><small>{disasterOverview.weather.observedAt || '기상청 관측 대기'}</small></div>
-                  <div><span><Droplets />상승 수위</span><strong>{waterLevelPoints.length ? `${risingWaterCount}개소` : '수집 대기'}</strong><small>관측소 {waterLevelPoints.length.toLocaleString('ko-KR')}개 연계</small></div>
-                  <div><span><Factory />배수펌프장</span><strong>{pumpStationCount ? `${pumpStationCount}개소` : '수집 대기'}</strong><small>지도 위치 기준</small></div>
-                  <div><span><Users />잠재 노출 인구</span><strong>{disasterOverview.population?.population != null ? `${disasterOverview.population.population.toLocaleString('ko-KR')}명` : '수집 대기'}</strong><small>{disasterOverview.population?.areaName || '행정동 통계 대기'}</small></div>
+                  <div><span><CloudRain />최대 1시간 강수</span><strong>{formatMetric(historicalAnalysis.summary.maxRainfall1h, 'mm')}</strong><small>선택기간 관측 최댓값</small></div>
+                  <div><span><Snowflake />최대 적설</span><strong>{formatMetric(historicalAnalysis.summary.maxSnowDepth, 'cm')}</strong><small>고양시 내부 관측소</small></div>
+                  <div><span><Waves />최고 하천수위</span><strong>{formatMetric(historicalAnalysis.summary.maxWaterLevel, 'm')}</strong><small>고양시 내부 관측소</small></div>
+                  <div><span><Layers3 />침수흔적 구역</span><strong>{historicalAnalysis.summary.floodTraceCount ? `${historicalAnalysis.summary.floodTraceCount.toLocaleString('ko-KR')}건` : '적재 대기'}</strong><small>고양시 경계 중첩 자료</small></div>
                 </div>
                 <div className="source-status-row" aria-label="외부 API 연계 상태">
-                  {disasterOverview.sources.map((source) => <span key={source.id} className={`source-chip ${source.state}`} title={source.message}><i />{source.label}</span>)}
-                  <button className="text-button command-refresh" onClick={() => void loadDisasterData()} disabled={disasterLoading}><RefreshCcw size={14} className={disasterLoading ? 'is-spinning' : ''} />새로고침</button>
+                  {historicalAnalysis.sources.length ? historicalAnalysis.sources.map((source) => <span key={source.source} className={`source-chip ${source.status === 'complete' ? 'live' : source.status === 'failed' ? 'error' : 'configured'}`} title={source.message}><i />{historicalSourceLabels[source.source] ?? source.source}</span>) : <span className="source-chip configured"><i />과거자료 초기 적재 대기</span>}
+                  <button className="text-button command-refresh" onClick={() => setView('analysis')}><CalendarRange size={14} />분석 화면 열기</button>
                 </div>
-                {disasterError && <p className="command-error">최근 저장값 없이 연계 상태만 표시합니다. {disasterError}</p>}
+                {historicalError && <p className="command-error">{historicalError}</p>}
               </article>
 
               <div className="situation-kpi-grid">
@@ -519,6 +570,61 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
             </section>
           )}
 
+          {view === 'analysis' && (
+            <section className="historical-view" aria-label="재난 이력 분석">
+              <div className="analysis-scope-bar">
+                <div><span className="eyebrow">분석지역 고정</span><h2>경기도 고양시</h2><p>덕양구·일산동구·일산서구 경계 내부 자료만 사용합니다.</p></div>
+                <span className="scope-badge"><MapPin size={15} />행정구역 코드 41280</span>
+              </div>
+
+              <div className="analysis-kpi-grid">
+                <article><CloudRain /><span>최대 1시간 강수</span><strong>{formatMetric(historicalAnalysis.summary.maxRainfall1h, 'mm')}</strong></article>
+                <article><Snowflake /><span>최대 적설</span><strong>{formatMetric(historicalAnalysis.summary.maxSnowDepth, 'cm')}</strong></article>
+                <article><Waves /><span>최고 하천수위</span><strong>{formatMetric(historicalAnalysis.summary.maxWaterLevel, 'm')}</strong></article>
+                <article><Layers3 /><span>침수흔적 구역</span><strong>{historicalAnalysis.summary.floodTraceCount ? `${historicalAnalysis.summary.floodTraceCount.toLocaleString('ko-KR')}건` : '적재 대기'}</strong></article>
+              </div>
+
+              <div className="analysis-workspace">
+                <aside className="analysis-filter-panel">
+                  <div className="filter-title"><SlidersHorizontal size={18} /><h2>분석 조건</h2></div>
+                  <label className="field"><span>시작일</span><input type="date" min="2000-01-01" max={analysisEnd} value={analysisStart} onChange={(event) => setAnalysisStart(event.target.value)} /></label>
+                  <label className="field"><span>종료일</span><input type="date" min={analysisStart} max="2099-12-31" value={analysisEnd} onChange={(event) => setAnalysisEnd(event.target.value)} /></label>
+                  <div className="period-presets" aria-label="분석기간 빠른 선택">
+                    <button type="button" onClick={() => { setAnalysisStart('2025-01-01'); setAnalysisEnd('2025-12-31') }}>1년</button>
+                    <button type="button" onClick={() => { setAnalysisStart('2023-01-01'); setAnalysisEnd('2025-12-31') }}>3년</button>
+                    <button type="button" onClick={() => { setAnalysisStart('2020-01-01'); setAnalysisEnd('2025-12-31') }}>기본 6년</button>
+                  </div>
+                  <label className="field"><span>자료 유형</span><select value={analysisMetric} onChange={(event) => setAnalysisMetric(event.target.value as HistoricalMetricFilter)}><option value="all">전체 자료</option><option value="rainfall">강수량</option><option value="snowfall">적설량</option><option value="waterLevel">하천수위</option><option value="flood">침수·홍수</option></select></label>
+                  <div className="analysis-rule"><strong>지역 제한 기준</strong><span>관측소 좌표와 공간자료가 고양시 경계 내부일 때만 분석합니다.</span></div>
+                  <button className="button primary full" onClick={() => void loadHistorical()} disabled={historicalLoading}><RefreshCcw size={16} className={historicalLoading ? 'is-spinning' : ''} />{historicalLoading ? '조회 중' : '분석자료 조회'}</button>
+                </aside>
+
+                <KakaoMap facilities={goyangFacilities} selected={selected} onSelect={setSelected} allTypes={types} disasterPoints={historicalPoints} disasterAreas={historicalAreas} layers={historicalLayers} enableFloodWms={false} />
+
+                <aside className="analysis-result-panel">
+                  <header><span className="eyebrow">분석 범위</span><h2>{analysisStart}~{analysisEnd}</h2><p>고양시 내부 관측·공간자료</p></header>
+                  <dl className="analysis-summary-list">
+                    <div><dt>관측소</dt><dd>{historicalAnalysis.summary.stationCount.toLocaleString('ko-KR')}개소</dd></div>
+                    <div><dt>관측자료</dt><dd>{historicalAnalysis.summary.observationCount.toLocaleString('ko-KR')}건</dd></div>
+                    <div><dt>분석 완료 시설</dt><dd>{historicalAnalysis.summary.analysedFacilityCount.toLocaleString('ko-KR')}개</dd></div>
+                    <div><dt>자료 기준일</dt><dd>{historicalAnalysis.generatedAt ? new Date(historicalAnalysis.generatedAt).toLocaleDateString('ko-KR') : '적재 대기'}</dd></div>
+                  </dl>
+                  {!historicalAnalysis.schemaReady && <div className="analysis-empty-note"><Database size={20} /><strong>분석 DB 준비 중</strong><span>구조 적용 후 과거 관측자료를 순차적으로 적재합니다.</span></div>}
+                  {historicalError && <div className="nearby-error" role="alert">{historicalError}</div>}
+                  <div className="source-coverage-list">
+                    <strong>자료 적재 현황</strong>
+                    {historicalAnalysis.sources.length ? historicalAnalysis.sources.map((source) => <div key={source.source}><span>{historicalSourceLabels[source.source] ?? source.source}</span><b className={source.status}>{source.status === 'complete' ? '완료' : source.status === 'running' ? '수집 중' : source.status === 'failed' ? '실패' : '대기'}</b><small>{source.acceptedCount.toLocaleString('ko-KR')}건 · 관외 제외 {source.excludedCount.toLocaleString('ko-KR')}건</small></div>) : <p>아직 적재 이력이 없습니다.</p>}
+                  </div>
+                </aside>
+              </div>
+
+              <article className="panel analysis-table-panel">
+                <header className="panel-header"><div><span className="eyebrow">관측소별 기간 통계</span><h2>고양시 관측자료</h2></div><span className="panel-count">{historicalAnalysis.stations.length.toLocaleString('ko-KR')}개 지표</span></header>
+                {historicalAnalysis.stations.length ? <div className="table-wrap"><table><thead><tr><th>관측소</th><th>자료원</th><th>항목</th><th>기간 최댓값</th><th>자료 수</th><th>최종 관측</th></tr></thead><tbody>{historicalAnalysis.stations.map((station) => <tr key={`${station.source}-${station.stationCode}-${station.metric}`}><td><strong>{station.stationName}</strong><small>{station.stationCode}</small></td><td>{historicalSourceLabels[station.source] ?? station.source}</td><td>{station.metric}</td><td>{station.maxValue == null ? '-' : station.maxValue.toLocaleString('ko-KR')}</td><td>{station.observationCount.toLocaleString('ko-KR')}</td><td>{station.lastObservedAt ? new Date(station.lastObservedAt).toLocaleString('ko-KR') : '-'}</td></tr>)}</tbody></table></div> : <div className="empty-state"><CalendarRange size={28} /><h3>과거 관측자료 적재를 기다리고 있습니다.</h3><p>승인된 API의 고양시 자료만 수집되며 관외 데이터는 저장하지 않습니다.</p></div>}
+              </article>
+            </section>
+          )}
+
           {view === 'map' && (
             <section className="map-layout" aria-label="지도 상황판">
               <aside className="filter-panel">
@@ -579,16 +685,6 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
 
               <aside className="detail-panel nearby-results-panel">
                 <header><div><span className="eyebrow">거리순 결과</span><h2>{nearbyLocation ? `${nearbyResults.length.toLocaleString('ko-KR')}개 시설` : '주변 시설물'}</h2><p>{nearbyLocation?.address ?? '주소를 검색하면 결과가 표시됩니다.'}</p></div></header>
-                {nearbyLocation && <div className="location-risk-card">
-                  <div className="risk-card-title"><span>위치별 재난 참고정보</span><strong className={nearbyRisk.tone}>{nearbyRisk.label}</strong></div>
-                  <dl>
-                    <div><dt>시간 강수</dt><dd>{formatMetric(nearbyDisasterOverview?.weather.rainfall1h ?? disasterOverview.weather.rainfall1h, 'mm')}</dd></div>
-                    <div><dt>침수흔적</dt><dd>{nearbyDisasterOverview?.floodTraceMatched == null ? '조회 대기' : nearbyDisasterOverview.floodTraceMatched ? '범위 포함' : '범위 밖'}</dd></div>
-                    <div><dt>잠재 인구</dt><dd>{nearbyDisasterOverview?.population?.population != null ? `${nearbyDisasterOverview.population.population.toLocaleString('ko-KR')}명` : '조회 대기'}</dd></div>
-                    <div><dt>API 상태</dt><dd>{nearbyDisasterOverview ? `${nearbyDisasterOverview.sources.filter((source) => source.state === 'live').length}/6 정상` : '분석 중'}</dd></div>
-                  </dl>
-                  <small>공식 재난 예보가 아닌 상황판 참고 지표입니다.</small>
-                </div>}
                 {!nearbyLocation ? <div className="detail-empty nearby-empty"><LocateFixed size={28} /><h2>검색 위치를 지정해 주세요</h2><p>지도에는 전체 시설물이 먼저 표시됩니다.</p></div> : nearbyResults.length ? (
                   <div className="nearby-result-list">
                     {nearbyResults.map(({ facility, distance }) => <button key={facility.id} className={selected?.id === facility.id ? 'is-selected' : ''} onClick={() => setSelected(facility)}><span className="nearby-result-top"><strong>{facility.name}</strong><b>{distance < 1 ? `${Math.round(distance * 1000)}m` : `${distance.toFixed(2)}km`}</b></span><span>{facility.type} · {facility.status}</span><small>{facility.address}</small></button>)}

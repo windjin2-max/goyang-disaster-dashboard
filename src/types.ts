@@ -44,11 +44,11 @@ export interface ChangeRecord {
   summary: string
 }
 
-export type ViewName = 'dashboard' | 'map' | 'nearby' | 'facilities'
+export type ViewName = 'dashboard' | 'map' | 'analysis' | 'nearby' | 'facilities'
 
 export type DisasterSourceId = 'weather' | 'hydrology' | 'kwater' | 'flood' | 'pump' | 'population'
 export type DisasterSourceState = 'live' | 'configured' | 'error'
-export type DisasterLayerId = 'facilities' | 'rainfall' | 'waterLevel' | 'floodTrace' | 'pumpStations' | 'population'
+export type DisasterLayerId = 'facilities' | 'rainfall' | 'snowfall' | 'waterLevel' | 'floodTrace' | 'riverFlood' | 'urbanFlood' | 'pumpStations' | 'population'
 
 export interface DisasterSourceStatus {
   id: DisasterSourceId
@@ -69,7 +69,7 @@ export interface WeatherSnapshot {
 export interface DisasterMapPoint {
   id: string
   name: string
-  kind: 'rainfall' | 'waterLevel' | 'pumpStation' | 'population'
+  kind: 'rainfall' | 'snowfall' | 'waterLevel' | 'pumpStation' | 'population'
   latitude: number
   longitude: number
   value?: number | null
@@ -83,7 +83,7 @@ export interface DisasterMapPoint {
 export interface DisasterArea {
   id: string
   name: string
-  kind: 'floodTrace' | 'population'
+  kind: 'floodTrace' | 'riverFlood' | 'urbanFlood' | 'population'
   coordinates: number[][][]
   value?: number | null
   unit?: string
@@ -108,3 +108,47 @@ export interface DisasterOverview {
 }
 
 export type DisasterLayerVisibility = Record<DisasterLayerId, boolean>
+
+export type HistoricalMetricFilter = 'all' | 'rainfall' | 'snowfall' | 'waterLevel' | 'flood'
+
+export interface HistoricalStationMetric {
+  source: string
+  stationCode: string
+  stationName: string
+  latitude: number
+  longitude: number
+  metric: string
+  maxValue: number | null
+  firstObservedAt?: string
+  lastObservedAt?: string
+  observationCount: number
+}
+
+export interface HistoricalSourceState {
+  source: string
+  status: 'pending' | 'running' | 'complete' | 'partial' | 'failed'
+  acceptedCount: number
+  excludedCount: number
+  message: string
+  finishedAt?: string
+}
+
+export interface HistoricalAnalysis {
+  schemaReady: boolean
+  scope: { regionCode: string; regionName: string }
+  period: { start: string; end: string }
+  generatedAt: string
+  summary: {
+    stationCount: number
+    observationCount: number
+    maxRainfall1h: number | null
+    maxRainfallDaily: number | null
+    maxSnowDepth: number | null
+    maxWaterLevel: number | null
+    floodTraceCount: number
+    analysedFacilityCount: number
+  }
+  stations: HistoricalStationMetric[]
+  areas: DisasterArea[]
+  sources: HistoricalSourceState[]
+}
