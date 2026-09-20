@@ -1,19 +1,37 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import * as XLSX from 'xlsx'
 import {
-  Activity, Building2, CheckCircle2, ChevronRight, CircleGauge, Database, Download,
-  FileDown, History, LayoutDashboard, ListChecks, Map as MapIcon,
-  LocateFixed, LogOut, MapPin, Menu, Pencil, Plus, RefreshCcw, Search, Siren, SlidersHorizontal, TriangleAlert,
+  Activity, Building2, CheckCircle2, ChevronRight, CircleGauge, CloudRain, Database, Download, Droplets,
+  Factory, FileDown, History, Layers3, LayoutDashboard, ListChecks, Map as MapIcon,
+  LocateFixed, LogOut, MapPin, Menu, Pencil, Plus, RefreshCcw, Search, Siren, SlidersHorizontal, TriangleAlert, Users,
   Upload, X,
 } from 'lucide-react'
 import KakaoMap from './KakaoMap'
 import FacilityModal from './FacilityModal'
-import type { ChangeRecord, Facility, Filters, ViewName } from './types'
+import type { ChangeRecord, DisasterLayerId, DisasterLayerVisibility, DisasterMapPoint, DisasterOverview, Facility, Filters, ViewName } from './types'
 import { fetchFacilities, fetchFacilityHistory, importFacilities, persistFacility } from './lib/facilityRepository'
+import { emptyDisasterOverview, fetchDisasterOverview, formatMetric } from './lib/disasterRepository'
 import { CCTV_ALL_TYPE, colorForType, downloadText, filterFacilities, formatCoordinate, haversineKm, isCctvType, toCsv } from './utils'
 
 const emptyFilters: Filters = { query: '', type: '', status: '', district: '', agency: '' }
 const defaultMapFilters: Filters = { ...emptyFilters, status: '운영중' }
+const defaultDisasterLayers: DisasterLayerVisibility = {
+  facilities: true,
+  rainfall: true,
+  waterLevel: true,
+  floodTrace: true,
+  pumpStations: true,
+  population: false,
+}
+
+const layerLabels: { id: DisasterLayerId; label: string }[] = [
+  { id: 'facilities', label: '예·경보시설물' },
+  { id: 'rainfall', label: '강우 관측' },
+  { id: 'waterLevel', label: '하천 수위' },
+  { id: 'floodTrace', label: '침수흔적도' },
+  { id: 'pumpStations', label: '배수펌프장' },
+  { id: 'population', label: '인구 분포' },
+]
 
 interface NearbyLocation {
   address: string
@@ -28,6 +46,48 @@ function countBy(items: Facility[], key: keyof Facility) {
     counts.set(value, (counts.get(value) ?? 0) + 1)
   })
   return [...counts.entries()].sort((a, b) => b[1] - a[1])
+}
+
+function calculateReferenceRisk(overview: DisasterOverview) {
+  const rainfall = overview.weather.rainfall1h
+  const risingWater = overview.points.some((point) => point.kind === 'waterLevel' && point.trend === 'up')
+  if (overview.floodTraceMatched || (rainfall != null && rainfall >= 30)) return { label: '경계 참고', tone: 'danger' }
+  if (risingWater || (rainfall != null && rainfall >= 10)) return { label: '주의 참고', tone: 'warning' }
+  if (rainfall != null || overview.points.length || overview.population) return { label: '관심 없음', tone: 'safe' }
+  return { label: '판단 대기', tone: 'neutral' }
+}
+
+function overviewLocationPoints(overview: DisasterOverview, location?: NearbyLocation): DisasterMapPoint[] {
+  const latitude = location?.latitude ?? 37.6584
+  const longitude = location?.longitude ?? 126.832
+  const result: DisasterMapPoint[] = []
+  if (overview.weather.observedAt || overview.weather.rainfall1h != null || overview.weather.snowDepth != null) {
+    result.push({
+      id: `weather-${latitude}-${longitude}`,
+      name: location?.address || '고양시 기상 조회지점',
+      kind: 'rainfall',
+      latitude,
+      longitude,
+      value: overview.weather.rainfall1h,
+      unit: 'mm',
+      source: '기상청',
+      observedAt: overview.weather.observedAt,
+    })
+  }
+  if (overview.population?.population != null) {
+    result.push({
+      id: `population-${latitude}-${longitude}`,
+      name: overview.population.areaName || location?.address || '고양시 인구',
+      kind: 'population',
+      latitude,
+      longitude,
+      value: overview.population.population,
+      unit: '명',
+      source: '행정안전부',
+      observedAt: overview.population.statisticMonth,
+    })
+  }
+  return result
 }
 
 function normalizeImportedRow(row: Record<string, unknown>, index: number, source = '일괄등록'): Facility | null {
@@ -75,6 +135,11 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   const [nearbyLocation, setNearbyLocation] = useState<NearbyLocation | null>(null)
   const [nearbyError, setNearbyError] = useState('')
   const [nearbyRadiusKm, setNearbyRadiusKm] = useState(1)
+  const [disasterOverview, setDisasterOverview] = useState<DisasterOverview>(() => emptyDisasterOverview())
+  const [nearbyDisasterOverview, setNearbyDisasterOverview] = useState<DisasterOverview | null>(null)
+  const [disasterLoading, setDisasterLoading] = useState(false)
+  const [disasterError, setDisasterError] = useState('')
+  const [disasterLayers, setDisasterLayers] = useState<DisasterLayerVisibility>(defaultDisasterLayers)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 12
 
@@ -93,6 +158,25 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   }, [])
 
   useEffect(() => { void loadDatabase() }, [loadDatabase])
+
+  const loadDisasterData = useCallback(async (location?: NearbyLocation) => {
+    setDisasterLoading(true)
+    setDisasterError('')
+    try {
+      const result = await fetchDisasterOverview(location)
+      if (location) setNearbyDisasterOverview(result)
+      else setDisasterOverview(result)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '재난 API 데이터를 불러오지 못했습니다.'
+      setDisasterError(message)
+      if (location) setNearbyDisasterOverview(emptyDisasterOverview(message))
+      else setDisasterOverview(emptyDisasterOverview(message))
+    } finally {
+      setDisasterLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { void loadDisasterData() }, [loadDisasterData])
   useEffect(() => { if (toast) { const timer = window.setTimeout(() => setToast(''), 2800); return () => clearTimeout(timer) } }, [toast])
   useEffect(() => setPage(1), [filters])
 
@@ -117,6 +201,24 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   const coordCount = facilities.filter((item) => item.longitude != null && item.latitude != null).length
   const inspectionCount = facilities.filter((item) => item.status === '점검필요').length
   const missingCoordCount = facilities.length - coordCount
+  const localPumpPoints = useMemo<DisasterMapPoint[]>(() => facilities
+    .filter((facility) => /배수.*펌프|펌프장/.test(`${facility.name} ${facility.type}`) && facility.latitude != null && facility.longitude != null)
+    .map((facility) => ({ id: `facility-${facility.id}`, name: facility.name, kind: 'pumpStation' as const, latitude: facility.latitude!, longitude: facility.longitude!, address: facility.address, source: '시설물 DB' })), [facilities])
+  const disasterPoints = useMemo(() => {
+    const hasPumpApiPoints = disasterOverview.points.some((point) => point.kind === 'pumpStation')
+    const collected = hasPumpApiPoints ? disasterOverview.points : [...disasterOverview.points, ...localPumpPoints]
+    return [...collected, ...overviewLocationPoints(disasterOverview)]
+  }, [disasterOverview, localPumpPoints])
+  const nearbyDisasterPoints = useMemo(() => {
+    if (!nearbyDisasterOverview) return disasterPoints
+    const hasPumpApiPoints = nearbyDisasterOverview.points.some((point) => point.kind === 'pumpStation')
+    const collected = hasPumpApiPoints ? nearbyDisasterOverview.points : [...nearbyDisasterOverview.points, ...localPumpPoints]
+    return [...collected, ...overviewLocationPoints(nearbyDisasterOverview, nearbyLocation ?? undefined)]
+  }, [nearbyDisasterOverview, nearbyLocation, disasterPoints, localPumpPoints])
+  const waterLevelPoints = disasterPoints.filter((point) => point.kind === 'waterLevel')
+  const risingWaterCount = waterLevelPoints.filter((point) => point.trend === 'up').length
+  const pumpStationCount = disasterPoints.filter((point) => point.kind === 'pumpStation').length
+  const liveSourceCount = disasterOverview.sources.filter((source) => source.state === 'live').length
   const districtGradient = useMemo(() => {
     if (!facilities.length || !districtCounts.length) return '#dce4ee'
     const colors = ['#256fd2', '#16a1b3', '#7b61d1', '#e38b2c', '#66768c']
@@ -136,6 +238,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
       .sort((a, b) => a.distance - b.distance)
   }, [facilities, nearbyLocation, nearbyRadiusKm])
   const nearbyIds = useMemo(() => new Set(nearbyResults.map((item) => item.facility.id)), [nearbyResults])
+  const nearbyRisk = calculateReferenceRisk(nearbyDisasterOverview ?? disasterOverview)
 
   const notify = (message: string) => setToast(message)
   const goToMap = (nextFilters: Partial<Filters> = {}) => {
@@ -165,11 +268,14 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
     setNearbyError('')
     setNearbyRadiusKm(1)
     setSelected(null)
+    setNearbyDisasterOverview(null)
   }
   const handleAddressResolved = useCallback((location: NearbyLocation | null, error?: string) => {
     setNearbyLocation(location)
     setNearbyError(error ?? '')
-  }, [])
+    setNearbyDisasterOverview(null)
+    if (location) void loadDisasterData(location)
+  }, [loadDisasterData])
   const saveFacility = async (facility: Facility) => {
     const exists = facilities.some((item) => item.id === facility.id)
     try {
@@ -243,6 +349,22 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
       execute: () => ({ total: facilities.length, active: activeCount, types: types.length, districts: Object.fromEntries(districtCounts) }),
     })
     register({
+      name: 'read_disaster_overview',
+      title: '재난 상황 요약 조회',
+      description: '현재 화면에 수집된 강수, 적설, 하천 수위, 배수펌프장, 인구와 6개 데이터 원천의 연결 상태를 조회합니다.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      annotations: { readOnlyHint: true, untrustedContentHint: false },
+      execute: () => ({
+        generatedAt: disasterOverview.generatedAt,
+        locationLabel: disasterOverview.locationLabel,
+        weather: disasterOverview.weather,
+        population: disasterOverview.population,
+        risingWaterLevelCount: risingWaterCount,
+        pumpStationCount,
+        sources: disasterOverview.sources.map(({ id, label, state, updatedAt, message }) => ({ id, label, state, updatedAt, message })),
+      }),
+    })
+    register({
       name: 'filter_facility_map',
       title: '지도 시설 필터',
       description: '지도 상황판으로 이동하고 시설 유형, 운영 상태, 행정구역, 담당 기관, 검색어 조건을 적용합니다.',
@@ -283,7 +405,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
       },
     })
     return () => lifecycle.abort()
-  }, [facilities, activeCount, types.length, districtCounts])
+  }, [facilities, activeCount, types.length, districtCounts, disasterOverview, risingWaterCount, pumpStationCount])
 
   const navigation = [
     { id: 'dashboard' as const, label: '통합 대시보드', icon: LayoutDashboard },
@@ -312,6 +434,24 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
         <div className="content">
           {view === 'dashboard' && (
             <section className="view-stack" aria-label="통합 대시보드">
+              <article className="disaster-command-panel">
+                <div className="command-heading">
+                  <div><span className="eyebrow">실시간 재난 관측</span><h2>고양시 재난 상황</h2></div>
+                  <div className="command-sync"><span className={`source-pulse ${liveSourceCount ? 'is-live' : ''}`} />{disasterLoading ? '데이터 갱신 중' : `${liveSourceCount}/6개 API 정상`}</div>
+                </div>
+                <div className="command-metrics">
+                  <div><span><CloudRain />시간 강수</span><strong>{formatMetric(disasterOverview.weather.rainfall1h, 'mm')}</strong><small>{disasterOverview.weather.observedAt || '기상청 관측 대기'}</small></div>
+                  <div><span><Droplets />상승 수위</span><strong>{waterLevelPoints.length ? `${risingWaterCount}개소` : '수집 대기'}</strong><small>관측소 {waterLevelPoints.length.toLocaleString('ko-KR')}개 연계</small></div>
+                  <div><span><Factory />배수펌프장</span><strong>{pumpStationCount ? `${pumpStationCount}개소` : '수집 대기'}</strong><small>지도 위치 기준</small></div>
+                  <div><span><Users />잠재 노출 인구</span><strong>{disasterOverview.population?.population != null ? `${disasterOverview.population.population.toLocaleString('ko-KR')}명` : '수집 대기'}</strong><small>{disasterOverview.population?.areaName || '행정동 통계 대기'}</small></div>
+                </div>
+                <div className="source-status-row" aria-label="외부 API 연계 상태">
+                  {disasterOverview.sources.map((source) => <span key={source.id} className={`source-chip ${source.state}`} title={source.message}><i />{source.label}</span>)}
+                  <button className="text-button command-refresh" onClick={() => void loadDisasterData()} disabled={disasterLoading}><RefreshCcw size={14} className={disasterLoading ? 'is-spinning' : ''} />새로고침</button>
+                </div>
+                {disasterError && <p className="command-error">최근 저장값 없이 연계 상태만 표시합니다. {disasterError}</p>}
+              </article>
+
               <div className="situation-kpi-grid">
                 <button className="situation-kpi tone-blue" onClick={() => goToMap()}><span className="kpi-icon"><Building2 /></span><span className="kpi-copy"><small>전체 시설</small><strong>{facilities.length.toLocaleString('ko-KR')}</strong><em>전체 위치 보기 <ChevronRight size={14} /></em></span></button>
                 <button className="situation-kpi tone-green" onClick={() => goToMap({ status: '운영중' })}><span className="kpi-icon"><CheckCircle2 /></span><span className="kpi-copy"><small>운영 중</small><strong>{activeCount.toLocaleString('ko-KR')}</strong><em>전체의 {facilities.length ? Math.round(activeCount / facilities.length * 100) : 0}%</em></span></button>
@@ -322,7 +462,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
               <div className="situation-main-grid">
                 <article className="panel dashboard-map-panel">
                   <header className="panel-header"><div><span className="eyebrow">고양시 전역</span><h2>시설 분포 지도</h2></div><div className="map-panel-actions"><span>지도 표시 {coordCount.toLocaleString('ko-KR')}개</span><button className="text-button" onClick={() => goToMap()}>상황판 열기 <ChevronRight size={15} /></button></div></header>
-                  <KakaoMap facilities={facilities} selected={null} onSelect={(facility) => { setSelected(facility); goToMap() }} allTypes={types} compact />
+                  <KakaoMap facilities={facilities} selected={null} onSelect={(facility) => { setSelected(facility); goToMap() }} allTypes={types} disasterPoints={disasterPoints} disasterAreas={disasterOverview.areas} layers={disasterLayers} compact />
                 </article>
 
                 <div className="dashboard-side-column">
@@ -382,11 +522,15 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
                 <label className="field"><span>운영 상태</span><select value={filters.status} onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}><option value="">전체 상태</option><option>운영중</option><option>점검필요</option><option>비활성</option></select></label>
                 <label className="field"><span>행정구역</span><select value={filters.district} onChange={(event) => setFilters((current) => ({ ...current, district: event.target.value }))}><option value="">고양시 전체</option>{districts.map((value) => <option key={value} value={value}>{value === '미분류' ? '관외' : value}</option>)}</select></label>
                 <label className="field"><span>담당 기관</span><select value={filters.agency} onChange={(event) => setFilters((current) => ({ ...current, agency: event.target.value }))}><option value="">전체 기관</option>{agencies.map((value) => <option key={value}>{value}</option>)}</select></label>
+                <fieldset className="layer-fieldset">
+                  <legend><Layers3 size={15} />재난 지도 레이어</legend>
+                  {layerLabels.map((layer) => <label key={layer.id}><input type="checkbox" checked={disasterLayers[layer.id]} onChange={() => setDisasterLayers((current) => ({ ...current, [layer.id]: !current[layer.id] }))} /><span>{layer.label}</span></label>)}
+                </fieldset>
                 <button className="button secondary full" onClick={() => setFilters(defaultMapFilters)}><RefreshCcw size={16} />필터 초기화</button>
                 <div className="filter-summary"><strong>{filtered.length.toLocaleString('ko-KR')}</strong><span>개 시설 표시 중</span></div>
               </aside>
 
-              <KakaoMap facilities={filtered} selected={selected} onSelect={setSelected} allTypes={types} />
+              <KakaoMap facilities={filtered} selected={selected} onSelect={setSelected} allTypes={types} disasterPoints={disasterPoints} disasterAreas={disasterOverview.areas} layers={disasterLayers} />
 
               <aside className={`detail-panel ${selected ? 'has-selection' : ''}`}>
                 {selected ? <>
@@ -422,10 +566,23 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
                 searchRadiusKm={nearbyRadiusKm}
                 highlightedFacilityIds={nearbyLocation ? nearbyIds : undefined}
                 onAddressResolved={handleAddressResolved}
+                disasterPoints={nearbyDisasterPoints}
+                disasterAreas={(nearbyDisasterOverview ?? disasterOverview).areas}
+                layers={disasterLayers}
               />
 
               <aside className="detail-panel nearby-results-panel">
                 <header><div><span className="eyebrow">거리순 결과</span><h2>{nearbyLocation ? `${nearbyResults.length.toLocaleString('ko-KR')}개 시설` : '주변 시설물'}</h2><p>{nearbyLocation?.address ?? '주소를 검색하면 결과가 표시됩니다.'}</p></div></header>
+                {nearbyLocation && <div className="location-risk-card">
+                  <div className="risk-card-title"><span>위치별 재난 참고정보</span><strong className={nearbyRisk.tone}>{nearbyRisk.label}</strong></div>
+                  <dl>
+                    <div><dt>시간 강수</dt><dd>{formatMetric(nearbyDisasterOverview?.weather.rainfall1h ?? disasterOverview.weather.rainfall1h, 'mm')}</dd></div>
+                    <div><dt>침수흔적</dt><dd>{nearbyDisasterOverview?.floodTraceMatched == null ? '조회 대기' : nearbyDisasterOverview.floodTraceMatched ? '범위 포함' : '범위 밖'}</dd></div>
+                    <div><dt>잠재 인구</dt><dd>{nearbyDisasterOverview?.population?.population != null ? `${nearbyDisasterOverview.population.population.toLocaleString('ko-KR')}명` : '조회 대기'}</dd></div>
+                    <div><dt>API 상태</dt><dd>{nearbyDisasterOverview ? `${nearbyDisasterOverview.sources.filter((source) => source.state === 'live').length}/6 정상` : '분석 중'}</dd></div>
+                  </dl>
+                  <small>공식 재난 예보가 아닌 상황판 참고 지표입니다.</small>
+                </div>}
                 {!nearbyLocation ? <div className="detail-empty nearby-empty"><LocateFixed size={28} /><h2>검색 위치를 지정해 주세요</h2><p>지도에는 전체 시설물이 먼저 표시됩니다.</p></div> : nearbyResults.length ? (
                   <div className="nearby-result-list">
                     {nearbyResults.map(({ facility, distance }) => <button key={facility.id} className={selected?.id === facility.id ? 'is-selected' : ''} onClick={() => setSelected(facility)}><span className="nearby-result-top"><strong>{facility.name}</strong><b>{distance < 1 ? `${Math.round(distance * 1000)}m` : `${distance.toFixed(2)}km`}</b></span><span>{facility.type} · {facility.status}</span><small>{facility.address}</small></button>)}

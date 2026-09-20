@@ -6,3 +6,4 @@ dist/
 *.tsbuildinfo
 outputs/
 site-package.tar.gz
+supabase/.temp/

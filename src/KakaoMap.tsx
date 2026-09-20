@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Crosshair, KeyRound, LocateFixed, Minus, Plus, Printer, Ruler } from 'lucide-react'
-import type { Facility } from './types'
+import type { DisasterArea, DisasterLayerVisibility, DisasterMapPoint, Facility } from './types'
+import { fetchFloodOverlay } from './lib/disasterRepository'
 import { colorForType, haversineKm } from './utils'
 
 interface KakaoMapProps {
@@ -13,6 +14,9 @@ interface KakaoMapProps {
   searchRadiusKm?: number
   highlightedFacilityIds?: Set<string>
   onAddressResolved?: (location: SearchLocation | null, error?: string) => void
+  disasterPoints?: DisasterMapPoint[]
+  disasterAreas?: DisasterArea[]
+  layers?: DisasterLayerVisibility
 }
 
 interface SearchLocation {
@@ -57,11 +61,29 @@ function markerSvg(color: string) {
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
 }
 
-export default function KakaoMap({ facilities, selected, onSelect, allTypes, compact = false, searchRequest, searchRadiusKm = 1, highlightedFacilityIds, onAddressResolved }: KakaoMapProps) {
+const defaultLayers: DisasterLayerVisibility = {
+  facilities: true,
+  rainfall: true,
+  waterLevel: true,
+  floodTrace: true,
+  pumpStations: true,
+  population: false,
+}
+
+function pointColor(kind: DisasterMapPoint['kind']) {
+  if (kind === 'rainfall') return '#256fd2'
+  if (kind === 'waterLevel') return '#0f8f9d'
+  if (kind === 'pumpStation') return '#d97706'
+  return '#7b61d1'
+}
+
+export default function KakaoMap({ facilities, selected, onSelect, allTypes, compact = false, searchRequest, searchRadiusKm = 1, highlightedFacilityIds, onAddressResolved, disasterPoints = [], disasterAreas = [], layers = defaultLayers }: KakaoMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const clusterRef = useRef<any>(null)
   const markersRef = useRef<any[]>([])
+  const disasterMarkersRef = useRef<any[]>([])
+  const disasterAreasRef = useRef<any[]>([])
   const boundaryRef = useRef<any[]>([])
   const searchMarkerRef = useRef<any>(null)
   const searchCircleRef = useRef<any>(null)
@@ -73,6 +95,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
   const [radiusKm, setRadiusKm] = useState(2)
   const [radiusCenter, setRadiusCenter] = useState<Facility | null>(null)
   const [searchPoint, setSearchPoint] = useState<SearchLocation | null>(null)
+  const [floodOverlayImage, setFloodOverlayImage] = useState('')
 
   useEffect(() => {
     fetch(`${import.meta.env.BASE_URL}data/goyang-boundary.json`)
@@ -212,7 +235,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
 
     clusterer.clear()
     markersRef.current.forEach((marker) => marker.setMap(null))
-    markersRef.current = radiusFacilities.map((facility) => {
+    markersRef.current = layers.facilities ? radiusFacilities.map((facility) => {
       const color = colorForType(facility.type, allTypes)
       const image = new kakao.maps.MarkerImage(markerSvg(color), new kakao.maps.Size(34, 42), { offset: new kakao.maps.Point(17, 41) })
       const marker = new kakao.maps.Marker({
@@ -223,9 +246,102 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
       })
       kakao.maps.event.addListener(marker, 'click', () => handleSelection(facility))
       return marker
-    })
+    }) : []
     clusterer.addMarkers(markersRef.current)
-  }, [radiusFacilities, allTypes, measureMode, mapReady, highlightedFacilityIds])
+  }, [radiusFacilities, allTypes, measureMode, mapReady, highlightedFacilityIds, layers.facilities])
+
+  useEffect(() => {
+    const kakao = window.kakao
+    const map = mapRef.current
+    if (!mapReady || !kakao?.maps || !map) return
+
+    disasterMarkersRef.current.forEach((marker) => marker.setMap(null))
+    disasterMarkersRef.current = disasterPoints
+      .filter((point) => (
+        (point.kind === 'rainfall' && layers.rainfall)
+        || (point.kind === 'waterLevel' && layers.waterLevel)
+        || (point.kind === 'pumpStation' && layers.pumpStations)
+        || (point.kind === 'population' && layers.population)
+      ))
+      .map((point) => {
+        const value = point.value == null ? '' : ` · ${point.value}${point.unit ?? ''}`
+        const image = new kakao.maps.MarkerImage(markerSvg(pointColor(point.kind)), new kakao.maps.Size(34, 42), { offset: new kakao.maps.Point(17, 41) })
+        return new kakao.maps.Marker({
+          map,
+          position: new kakao.maps.LatLng(point.latitude, point.longitude),
+          title: `${point.name}${value}`,
+          image,
+          zIndex: 7,
+        })
+      })
+
+    return () => {
+      disasterMarkersRef.current.forEach((marker) => marker.setMap(null))
+      disasterMarkersRef.current = []
+    }
+  }, [disasterPoints, layers.rainfall, layers.waterLevel, layers.pumpStations, layers.population, mapReady])
+
+  useEffect(() => {
+    const kakao = window.kakao
+    const map = mapRef.current
+    if (!mapReady || !kakao?.maps || !map) return
+
+    disasterAreasRef.current.forEach((polygon) => polygon.setMap(null))
+    disasterAreasRef.current = disasterAreas
+      .filter((area) => (area.kind === 'floodTrace' ? layers.floodTrace : layers.population))
+      .map((area) => new kakao.maps.Polygon({
+        map,
+        path: area.coordinates.map((ring) => ring.map(([longitude, latitude]) => new kakao.maps.LatLng(latitude, longitude))),
+        strokeWeight: 2,
+        strokeColor: area.kind === 'floodTrace' ? '#d33f49' : '#7b61d1',
+        strokeOpacity: .82,
+        fillColor: area.kind === 'floodTrace' ? '#ef6a71' : '#8b72df',
+        fillOpacity: area.kind === 'floodTrace' ? .24 : .16,
+      }))
+
+    return () => {
+      disasterAreasRef.current.forEach((polygon) => polygon.setMap(null))
+      disasterAreasRef.current = []
+    }
+  }, [disasterAreas, layers.floodTrace, layers.population, mapReady])
+
+  useEffect(() => {
+    const kakao = window.kakao
+    const map = mapRef.current
+    if (!mapReady || !kakao?.maps || !map || !layers.floodTrace) {
+      setFloodOverlayImage('')
+      return
+    }
+    let cancelled = false
+    let requestId = 0
+    const clear = () => setFloodOverlayImage('')
+    const refresh = async () => {
+      const currentId = ++requestId
+      const bounds = map.getBounds()
+      const southWest = bounds.getSouthWest()
+      const northEast = bounds.getNorthEast()
+      const element = containerRef.current
+      if (!element) return
+      clear()
+      const image = await fetchFloodOverlay({
+        bbox: [southWest.getLng(), southWest.getLat(), northEast.getLng(), northEast.getLat()],
+        width: element.clientWidth,
+        height: element.clientHeight,
+      })
+      if (!cancelled && currentId === requestId && image) setFloodOverlayImage(image)
+    }
+    kakao.maps.event.addListener(map, 'idle', refresh)
+    kakao.maps.event.addListener(map, 'dragstart', clear)
+    kakao.maps.event.addListener(map, 'zoom_start', clear)
+    void refresh()
+    return () => {
+      cancelled = true
+      kakao.maps.event.removeListener(map, 'idle', refresh)
+      kakao.maps.event.removeListener(map, 'dragstart', clear)
+      kakao.maps.event.removeListener(map, 'zoom_start', clear)
+      setFloodOverlayImage('')
+    }
+  }, [layers.floodTrace, mapReady])
 
   useEffect(() => {
     if (!selected || !mapRef.current || !window.kakao?.maps || selected.latitude == null || selected.longitude == null) return
@@ -236,9 +352,9 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
     if (mapRef.current) mapRef.current.setLevel(Math.max(1, mapRef.current.getLevel() + delta))
   }
 
-  const positionPercent = (facility: Facility) => {
-    const lng = facility.longitude ?? 126.832
-    const lat = facility.latitude ?? 37.658
+  const positionPercent = (location: { longitude: number | null; latitude: number | null }) => {
+    const lng = location.longitude ?? 126.832
+    const lat = location.latitude ?? 37.658
     const left = Math.max(4, Math.min(96, ((lng - 126.68) / 0.32) * 100))
     const top = Math.max(5, Math.min(95, 100 - ((lat - 37.54) / 0.23) * 100))
     return { left: `${left}%`, top: `${top}%` }
@@ -252,7 +368,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
           <div className="map-place-label place-one">덕양구</div>
           <div className="map-place-label place-two">일산동구</div>
           <div className="map-place-label place-three">일산서구</div>
-          {radiusFacilities.map((facility) => (
+          {layers.facilities && radiusFacilities.map((facility) => (
             <button
               className={`fallback-marker ${selected?.id === facility.id ? 'is-selected' : ''}`}
               key={facility.id}
@@ -262,12 +378,26 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
               title={facility.name}
             />
           ))}
+          {disasterPoints.filter((point) => (
+            (point.kind === 'rainfall' && layers.rainfall)
+            || (point.kind === 'waterLevel' && layers.waterLevel)
+            || (point.kind === 'pumpStation' && layers.pumpStations)
+            || (point.kind === 'population' && layers.population)
+          )).map((point) => (
+            <span
+              className={`fallback-marker disaster-marker ${point.kind}`}
+              key={`${point.kind}-${point.id}`}
+              style={{ ...positionPercent(point), '--marker-color': pointColor(point.kind) } as CSSProperties}
+              title={`${point.name}${point.value == null ? '' : ` · ${point.value}${point.unit ?? ''}`}`}
+            />
+          ))}
           <div className="map-key-message">
             <KeyRound size={17} aria-hidden="true" />
             <span>{mapError || '카카오 JavaScript 키를 설정하면 실제 지도가 표시됩니다.'}</span>
           </div>
         </div>
       )}
+      {floodOverlayImage && <img className="flood-wms-overlay" src={floodOverlayImage} alt="" aria-hidden="true" />}
 
       {!compact && <div className="map-toolbar map-toolbar-right" aria-label="지도 도구">
         <button className="icon-button" onClick={() => zoom(-1)} aria-label="지도 확대"><Plus size={18} /></button>
@@ -278,7 +408,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
       </div>}
 
       {!compact && <div className="map-result-strip" aria-live="polite">
-        <span><LocateFixed size={15} /> 표시 시설 <b>{radiusFacilities.length.toLocaleString('ko-KR')}</b>개</span>
+        <span><LocateFixed size={15} /> 표시 시설 <b>{layers.facilities ? radiusFacilities.length.toLocaleString('ko-KR') : '0'}</b>개</span>
         {measureMode && <span>거리측정: {measurePoints.length === 0 ? '첫 시설 선택' : measurePoints.length === 1 ? '두 번째 시설 선택' : `${measurePoints[0].name} ↔ ${measurePoints[1].name} ${measuredDistance?.toFixed(2)}km`}</span>}
         {radiusCenter && (
           <label className="radius-control">{radiusCenter.name} 기준

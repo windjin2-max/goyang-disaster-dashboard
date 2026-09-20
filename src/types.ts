@@ -45,3 +45,66 @@ export interface ChangeRecord {
 }
 
 export type ViewName = 'dashboard' | 'map' | 'nearby' | 'facilities'
+
+export type DisasterSourceId = 'weather' | 'hydrology' | 'kwater' | 'flood' | 'pump' | 'population'
+export type DisasterSourceState = 'live' | 'configured' | 'error'
+export type DisasterLayerId = 'facilities' | 'rainfall' | 'waterLevel' | 'floodTrace' | 'pumpStations' | 'population'
+
+export interface DisasterSourceStatus {
+  id: DisasterSourceId
+  label: string
+  state: DisasterSourceState
+  updatedAt?: string
+  message?: string
+}
+
+export interface WeatherSnapshot {
+  rainfall1h: number | null
+  temperature: number | null
+  humidity: number | null
+  snowDepth: number | null
+  observedAt?: string
+}
+
+export interface DisasterMapPoint {
+  id: string
+  name: string
+  kind: 'rainfall' | 'waterLevel' | 'pumpStation' | 'population'
+  latitude: number
+  longitude: number
+  value?: number | null
+  unit?: string
+  trend?: 'up' | 'down' | 'steady' | 'unknown'
+  address?: string
+  source: string
+  observedAt?: string
+}
+
+export interface DisasterArea {
+  id: string
+  name: string
+  kind: 'floodTrace' | 'population'
+  coordinates: number[][][]
+  value?: number | null
+  unit?: string
+}
+
+export interface PopulationSnapshot {
+  areaName: string
+  population: number | null
+  households: number | null
+  statisticMonth?: string
+}
+
+export interface DisasterOverview {
+  generatedAt: string
+  locationLabel: string
+  weather: WeatherSnapshot
+  points: DisasterMapPoint[]
+  areas: DisasterArea[]
+  population: PopulationSnapshot | null
+  floodTraceMatched: boolean | null
+  sources: DisasterSourceStatus[]
+}
+
+export type DisasterLayerVisibility = Record<DisasterLayerId, boolean>
