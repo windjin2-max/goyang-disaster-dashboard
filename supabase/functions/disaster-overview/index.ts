@@ -265,12 +265,15 @@ async function fetchPumpStations(location: { latitude: number; longitude: number
     const total = numberValue(payload?.response?.body?.totalCount ?? payload?.totalCount)
     if (!items.length || (total != null && all.length >= total)) break
   }
-  return all.map((row, index) => pointFromRow(row, 'pumpStation', sourceLabels.pump, index))
+  const goyangRows = all.filter((row) => {
+    const administrativeArea = String(pick(row, [
+      '시군구명', 'signguNm', 'SIGNGU_NM', '시군구', '관할시군구',
+      '소재지도로명주소', '소재지지번주소', 'rdnmadr', 'lnmadr', '주소', 'address',
+    ]) ?? '')
+    return administrativeArea.includes('고양')
+  })
+  return goyangRows.map((row, index) => pointFromRow(row, 'pumpStation', sourceLabels.pump, index))
     .filter((point): point is MapPoint => point !== null)
-    .filter((point) => {
-      const area = `${point.address ?? ''} ${String(pick(all.find((row) => String(pick(row, ['시설명', 'fcltyNm', 'name'])) === point.name) ?? {}, ['시군구명', 'signguNm', 'SIGNGU_NM']) ?? '')}`
-      return area.includes('고양') || distanceKm(location, point) <= 30
-    })
 }
 
 async function fetchPopulation(location: { address?: string }, key: string) {

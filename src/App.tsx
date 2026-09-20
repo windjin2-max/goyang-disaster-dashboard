@@ -15,6 +15,7 @@ import { CCTV_ALL_TYPE, colorForType, downloadText, filterFacilities, formatCoor
 
 const emptyFilters: Filters = { query: '', type: '', status: '', district: '', agency: '' }
 const defaultMapFilters: Filters = { ...emptyFilters, status: '운영중' }
+const GOYANG_DISTRICTS = new Set(['덕양구', '일산동구', '일산서구'])
 const defaultDisasterLayers: DisasterLayerVisibility = {
   facilities: true,
   rainfall: true,
@@ -202,7 +203,12 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   const inspectionCount = facilities.filter((item) => item.status === '점검필요').length
   const missingCoordCount = facilities.length - coordCount
   const localPumpPoints = useMemo<DisasterMapPoint[]>(() => facilities
-    .filter((facility) => /배수.*펌프|펌프장/.test(`${facility.name} ${facility.type}`) && facility.latitude != null && facility.longitude != null)
+    .filter((facility) => (
+      /배수.*펌프|펌프장/.test(`${facility.name} ${facility.type}`)
+      && GOYANG_DISTRICTS.has(facility.district)
+      && facility.latitude != null
+      && facility.longitude != null
+    ))
     .map((facility) => ({ id: `facility-${facility.id}`, name: facility.name, kind: 'pumpStation' as const, latitude: facility.latitude!, longitude: facility.longitude!, address: facility.address, source: '시설물 DB' })), [facilities])
   const disasterPoints = useMemo(() => {
     const hasPumpApiPoints = disasterOverview.points.some((point) => point.kind === 'pumpStation')
