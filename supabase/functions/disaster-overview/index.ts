@@ -45,11 +45,15 @@ function envAny(names: string[]) {
   return ''
 }
 
+function decodedKey(key: string) {
+  try { return decodeURIComponent(key) } catch { return key }
+}
+
 const secretNames: Record<SourceId, string[]> = {
-  weather: ['KMA_SERVICE_KEY', 'KMA_API_KEY', 'WEATHER_API_KEY'],
+  weather: ['KMA_API_HUB_KEY', 'KMA_SERVICE_KEY', 'KMA_API_KEY', 'WEATHER_API_KEY'],
   hydrology: ['HRFCO_SERVICE_KEY', 'HRFCO_API_KEY', 'HANRIVER_API_KEY'],
   kwater: ['KWATER_SERVICE_KEY', 'KWATER_API_KEY'],
-  flood: ['SAFEMAP_API_KEY', 'SAFETY_MAP_API_KEY', 'LIFE_SAFETY_MAP_API_KEY'],
+  flood: ['SAFEMAP_SERVICE_KEY', 'SAFEMAP_API_KEY', 'SAFETY_MAP_API_KEY', 'LIFE_SAFETY_MAP_API_KEY'],
   pump: ['PUMP_STATION_SERVICE_KEY', 'PUMP_STATION_API_KEY'],
   population: ['MOIS_RESIDENT_POPULATION_SERVICE_KEY', 'MOIS_POPULATION_SERVICE_KEY'],
 }
@@ -107,11 +111,13 @@ function kmaGrid(latitude: number, longitude: number) {
   return { nx: Math.floor(ra * Math.sin(theta) + XO + .5), ny: Math.floor(ro - ra * Math.cos(theta) + YO + .5) }
 }
 
-async function fetchKma(latitude: number, longitude: number, key: string) {
+async function fetchKma(latitude: number, longitude: number, key: string, apiHub = false) {
   const basis = koreaDateParts(new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCMinutes() < 35 ? -1 : 0)
   const grid = kmaGrid(latitude, longitude)
-  const url = new URL('https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst')
-  url.searchParams.set('ServiceKey', key)
+  const url = new URL(apiHub
+    ? 'https://apihub.kma.go.kr/api/typ02/openApi/VilageFcstInfoService_2.0/getUltraSrtNcst'
+    : 'https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtNcst')
+  url.searchParams.set(apiHub ? 'authKey' : 'ServiceKey', decodedKey(key))
   url.searchParams.set('pageNo', '1')
   url.searchParams.set('numOfRows', '100')
   url.searchParams.set('dataType', 'JSON')
@@ -121,7 +127,10 @@ async function fetchKma(latitude: number, longitude: number, key: string) {
   url.searchParams.set('ny', String(grid.ny))
 
   const response = await fetch(url, { signal: AbortSignal.timeout(9000) })
-  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  if (!response.ok) {
+    const detail = (await response.text()).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)
+    throw new Error(`HTTP ${response.status}${detail ? ` · ${detail}` : ''}`)
+  }
   const payload = await response.json()
   const header = payload?.response?.header
   if (header?.resultCode && header.resultCode !== '00') throw new Error(header.resultMsg || header.resultCode)
@@ -244,7 +253,7 @@ async function fetchPumpStations(location: { latitude: number; longitude: number
   const all: Record<string, unknown>[] = []
   for (let page = 1; page <= 8; page += 1) {
     const url = new URL('https://api.data.go.kr/openapi/tn_pubr_public_pump_api')
-    url.searchParams.set('serviceKey', key)
+    url.searchParams.set('serviceKey', decodedKey(key))
     url.searchParams.set('pageNo', String(page))
     url.searchParams.set('numOfRows', '1000')
     url.searchParams.set('type', 'json')
@@ -267,7 +276,7 @@ async function fetchPumpStations(location: { latitude: number; longitude: number
 async function fetchPopulation(location: { address?: string }, key: string) {
   const month = previousMonth()
   const url = new URL('https://apis.data.go.kr/1741000/admmPpltnHhStus/selectAdmmPpltnHhStus')
-  url.searchParams.set('serviceKey', key)
+  url.searchParams.set('serviceKey', decodedKey(key))
   url.searchParams.set('admmCd', '4128000000')
   url.searchParams.set('srchFrYm', month)
   url.searchParams.set('srchToYm', month)
@@ -295,7 +304,7 @@ async function fetchPopulation(location: { address?: string }, key: string) {
 
 async function fetchConfiguredJson(endpoint: string, key: string, location: { latitude: number; longitude: number; address?: string }) {
   const url = new URL(endpoint)
-  if (!url.searchParams.has('serviceKey') && !url.searchParams.has('ServiceKey')) url.searchParams.set('serviceKey', key)
+  if (!url.searchParams.has('serviceKey') && !url.searchParams.has('ServiceKey')) url.searchParams.set('serviceKey', decodedKey(key))
   if (!url.searchParams.has('pageNo')) url.searchParams.set('pageNo', '1')
   if (!url.searchParams.has('numOfRows')) url.searchParams.set('numOfRows', '1000')
   if (!url.searchParams.has('type') && !url.searchParams.has('_type') && !url.searchParams.has('dataType')) url.searchParams.set('type', 'json')
@@ -340,8 +349,16 @@ async function fetchFloodImage(input: { bbox?: number[]; width?: number; height?
   if (!bbox || bbox.length !== 4 || bbox.some((value) => !Number.isFinite(value))) throw new Error('올바른 지도 범위가 필요합니다.')
   const width = Math.max(256, Math.min(1024, Math.round(Number(input.width) || 768)))
   const height = Math.max(256, Math.min(1024, Math.round(Number(input.height) || 640)))
-  const url = new URL('https://www.safemap.go.kr/sm/apis.do')
-  url.searchParams.set('apikey', key)
+  const toMercator = (longitude: number, latitude: number) => {
+    const x = longitude * 20037508.34 / 180
+    const limitedLatitude = Math.max(-85.05112878, Math.min(85.05112878, latitude))
+    const y = Math.log(Math.tan((90 + limitedLatitude) * Math.PI / 360)) / (Math.PI / 180) * 20037508.34 / 180
+    return [x, y]
+  }
+  const southWest = toMercator(bbox[0], bbox[1])
+  const northEast = toMercator(bbox[2], bbox[3])
+  const url = new URL('https://www.safemap.go.kr/openapi2/IF_0092_WMS')
+  url.searchParams.set('serviceKey', decodedKey(key))
   url.searchParams.set('service', 'WMS')
   url.searchParams.set('request', 'GetMap')
   url.searchParams.set('version', '1.1.1')
@@ -349,14 +366,17 @@ async function fetchFloodImage(input: { bbox?: number[]; width?: number; height?
   url.searchParams.set('styles', '')
   url.searchParams.set('format', 'image/png')
   url.searchParams.set('transparent', 'true')
-  url.searchParams.set('srs', 'EPSG:4326')
-  url.searchParams.set('bbox', bbox.join(','))
+  url.searchParams.set('srs', 'EPSG:3857')
+  url.searchParams.set('bbox', [...southWest, ...northEast].join(','))
   url.searchParams.set('width', String(width))
   url.searchParams.set('height', String(height))
   const response = await fetch(url, { signal: AbortSignal.timeout(15000) })
   if (!response.ok) throw new Error(`침수흔적도 HTTP ${response.status}`)
   const contentType = response.headers.get('content-type') ?? ''
-  if (!contentType.includes('image')) throw new Error('침수흔적도 이미지 응답이 아닙니다.')
+  if (!contentType.includes('image')) {
+    const detail = (await response.text()).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)
+    throw new Error(`침수흔적도 이미지 응답이 아닙니다.${detail ? ` · ${detail}` : ''}`)
+  }
   const bytes = new Uint8Array(await response.arrayBuffer())
   return `data:${contentType.split(';')[0] || 'image/png'};base64,${bytesToBase64(bytes)}`
 }
@@ -383,11 +403,12 @@ Deno.serve(async (request) => {
     let weather = { rainfall1h: null as number | null, temperature: null as number | null, humidity: null as number | null, snowDepth: null as number | null, observedAt: '' }
     let population: { areaName: string; population: number | null; households: number | null; statisticMonth?: string } | null = null
 
-    const weatherKey = envAny(secretNames.weather)
+    const weatherApiHubKey = envAny(['KMA_API_HUB_KEY'])
+    const weatherKey = weatherApiHubKey || envAny(secretNames.weather)
     if (!weatherKey) sources.push(sourceStatus('weather', 'error', '기상청 Secret을 찾을 수 없습니다.'))
     else {
       try {
-        weather = await fetchKma(location.latitude, location.longitude, weatherKey)
+        weather = await fetchKma(location.latitude, location.longitude, weatherKey, Boolean(weatherApiHubKey))
         sources.push(sourceStatus('weather', 'live'))
       } catch (error) {
         sources.push(sourceStatus('weather', 'error', error instanceof Error ? error.message : '호출 실패'))
