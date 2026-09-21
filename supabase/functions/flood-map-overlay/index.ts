@@ -1,5 +1,3 @@
-import { PNG } from 'npm:pngjs@7.0.0'
-
 type LayerCode = 'flood_trace' | 'urban_flood' | 'national_river_flood' | 'local_river_flood'
 
 const corsHeaders = {
@@ -36,18 +34,6 @@ function bytesToBase64(bytes: Uint8Array) {
   return btoa(binary)
 }
 
-function hasVisiblePixels(bytes: Uint8Array) {
-  try {
-    const image = PNG.sync.read(bytes)
-    for (let offset = 0; offset < image.data.length; offset += 4) {
-      if (image.data[offset + 3] > 8 && (image.data[offset] < 250 || image.data[offset + 1] < 250 || image.data[offset + 2] < 250)) return true
-    }
-    return false
-  } catch {
-    return false
-  }
-}
-
 function validBbox(value: unknown): value is [number, number, number, number] {
   if (!Array.isArray(value) || value.length !== 4) return false
   const [west, south, east, north] = value.map(Number)
@@ -77,8 +63,8 @@ async function fetchWmsImage(input: {
   for (const [index, url] of urls.entries()) {
     url.searchParams.set(isTrace ? (index === 0 ? 'serviceKey' : 'apikey') : 'ServiceKey', decodedKey(secret))
     url.searchParams.set('srs', 'EPSG:4326')
-    url.searchParams.set('Bbox', (isTrace ? input.bbox : floodMapBbox(input.bbox)).join(','))
-    url.searchParams.set('Format', 'image/png')
+    url.searchParams.set(isTrace && index === 0 ? 'bbox' : 'Bbox', (isTrace ? input.bbox : floodMapBbox(input.bbox)).join(','))
+    url.searchParams.set(isTrace && index === 0 ? 'format' : 'Format', 'image/png')
     url.searchParams.set('width', String(input.width))
     url.searchParams.set('height', String(input.height))
     url.searchParams.set('transparent', 'TRUE')
@@ -98,11 +84,7 @@ async function fetchWmsImage(input: {
     const bytes = new Uint8Array(await response.arrayBuffer())
     const isPng = contentType.includes('image/png') && bytes.length > 8
       && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
-    if (response.ok && isPng && hasVisiblePixels(bytes)) return { bytes, contentType: 'image/png' }
-    if (response.ok && isPng) {
-      lastError = 'WMS returned an empty transparent image. Check API utilization approval and layer availability.'
-      continue
-    }
+    if (response.ok && isPng) return { bytes, contentType: 'image/png' }
     lastError = `WMS ${response.status}: ${new TextDecoder().decode(bytes.slice(0, 240)).replace(secret, '[REDACTED]')}`
   }
   throw new Error(lastError)

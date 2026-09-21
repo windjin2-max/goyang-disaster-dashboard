@@ -143,6 +143,52 @@ function parseStationInfo(text: string) {
   return stations
 }
 
+function parseSnowStationInfo(text: string) {
+  const stations: JsonObject[] = []
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#') || trimmed.includes('END')) continue
+    const fields = trimmed.split(/\s+/)
+    const stationCode = fields[0] ?? ''
+    const longitude = numberValue(fields[1])
+    const latitude = numberValue(fields[2])
+    if (!/^\d+$/.test(stationCode) || longitude == null || latitude == null) continue
+    stations.push({
+      station_code: stationCode,
+      station_name: fields[6] || stationCode,
+      address: '',
+      latitude,
+      longitude,
+      raw: { sourceLine: trimmed, stationType: fields[3] ?? '' },
+    })
+  }
+  return stations
+}
+
+function parseSnowValues(text: string, stationIds: Map<string, number>, metric: 'snow_depth' | 'new_snow') {
+  const rows: JsonObject[] = []
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#') || trimmed.includes('END')) continue
+    const fields = trimmed.split(',').map((value) => value.trim())
+    const timestamp = String(fields[0] ?? '').replace(/\D/g, '')
+    const stationCode = fields[1] ?? ''
+    const stationId = stationIds.get(stationCode)
+    const value = numberValue(String(fields[6] ?? '').replaceAll('=', ''))
+    if (!stationId || timestamp.length < 12 || value == null || value < 0) continue
+    rows.push({
+      station_id: stationId,
+      observed_at: `${timestamp.slice(0, 4)}-${timestamp.slice(4, 6)}-${timestamp.slice(6, 8)}T${timestamp.slice(8, 10)}:${timestamp.slice(10, 12)}:00+09:00`,
+      metric,
+      value,
+      unit: 'cm',
+      quality_code: 'kma_snow_daily_snapshot',
+      raw: { sourceLine: trimmed, stationCode },
+    })
+  }
+  return rows
+}
+
 function monthRange(year: number, month: number) {
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
   const mm = String(month).padStart(2, '0')
@@ -153,6 +199,89 @@ function monthRange(year: number, month: number) {
     compactEnd: `${year}${mm}${String(lastDay).padStart(2, '0')}`,
     lastDay,
   }
+}
+
+async function importSnow(input: { year: number; month: number; refreshStations?: boolean }, context: {
+  kmaKey: string
+  supabaseUrl: string
+  serviceRoleKey: string
+}) {
+  const range = monthRange(input.year, input.month)
+  let excludedCount = 0
+  let storedStations = await supabaseRequest(
+    `${context.supabaseUrl}/rest/v1/observation_stations?select=id,station_code&source=eq.kma_snow&is_goyang=eq.true&is_active=eq.true`,
+    context.serviceRoleKey,
+  ) as Array<{ id: number; station_code: string }>
+
+  if (!storedStations.length || input.refreshStations) {
+    const stationText = await fetchKmaText('typ01/url/stn_snow.php', {
+      stn: '', tm: `${input.year}${String(input.month).padStart(2, '0')}151200`, mode: '0', help: '0',
+    }, context.kmaKey)
+    const stations = parseSnowStationInfo(stationText)
+    if (!stations.length) throw new Error('KMA snow station list returned no usable rows.')
+    const stationResult = await supabaseRequest(
+      `${context.supabaseUrl}/rest/v1/rpc/upsert_scoped_observation_stations`,
+      context.serviceRoleKey,
+      {
+        method: 'POST',
+        body: JSON.stringify({ p_source: 'kma_snow', p_metrics: ['snow_depth', 'new_snow'], p_stations: stations }),
+      },
+    ) as { excludedCount?: number }
+    excludedCount = Number(stationResult?.excludedCount ?? 0)
+    storedStations = await supabaseRequest(
+      `${context.supabaseUrl}/rest/v1/observation_stations?select=id,station_code&source=eq.kma_snow&is_goyang=eq.true&is_active=eq.true`,
+      context.serviceRoleKey,
+    ) as Array<{ id: number; station_code: string }>
+  }
+
+  if (!storedStations.length) throw new Error('No KMA snow station falls inside the loaded Goyang boundary.')
+  const stationIds = new Map(storedStations.map((station) => [station.station_code, station.id]))
+  const days = Array.from({ length: range.lastDay }, (_, index) => String(index + 1).padStart(2, '0'))
+  const observations: JsonObject[] = []
+  const errors: string[] = []
+
+  const results = await Promise.all(days.flatMap((day) => ([
+    { day, sd: 'tot', metric: 'snow_depth' as const },
+    { day, sd: 'day', metric: 'new_snow' as const },
+  ])).map(async ({ day, sd, metric }) => {
+    try {
+      const text = await fetchKmaText('typ01/url/kma_snow1.php', {
+        sd,
+        tm: `${input.year}${String(input.month).padStart(2, '0')}${day}2359`,
+        snow: '0',
+        help: '0',
+      }, context.kmaKey, 1)
+      return { rows: parseSnowValues(text, stationIds, metric), error: '' }
+    } catch (error) {
+      return { rows: [] as JsonObject[], error: `${input.year}-${String(input.month).padStart(2, '0')}-${day} ${metric}: ${error instanceof Error ? error.message : 'request failed'}` }
+    }
+  }))
+  observations.push(...results.flatMap((result) => result.rows))
+  errors.push(...results.map((result) => result.error).filter(Boolean))
+
+  for (let offset = 0; offset < observations.length; offset += 500) {
+    await supabaseRequest(
+      `${context.supabaseUrl}/rest/v1/historical_observations?on_conflict=station_id,observed_at,metric`,
+      context.serviceRoleKey,
+      {
+        method: 'POST',
+        headers: { prefer: 'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify(observations.slice(offset, offset + 500)),
+      },
+    )
+  }
+
+  const status = errors.length ? (observations.length ? 'partial' : 'failed') : 'complete'
+  await supabaseRequest(`${context.supabaseUrl}/rest/v1/ingestion_runs`, context.serviceRoleKey, {
+    method: 'POST',
+    headers: { prefer: 'return=minimal' },
+    body: JSON.stringify({
+      source: 'kma_snow', scope_region_code: '41280', period_start: range.start, period_end: range.end,
+      status, accepted_count: observations.length, excluded_count: excludedCount,
+      message: errors.join(' | '), finished_at: new Date().toISOString(),
+    }),
+  })
+  return { ok: status !== 'failed', status, stationCount: storedStations.length, acceptedCount: observations.length, excludedCount, errors }
 }
 
 Deno.serve(async (request) => {
@@ -167,7 +296,7 @@ Deno.serve(async (request) => {
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.trim()
   if (!kmaKey || !supabaseUrl || !serviceRoleKey) return jsonResponse({ error: 'Required server secrets are unavailable.' }, 500)
 
-  let input: { year?: number; month?: number; refreshStations?: boolean }
+  let input: { action?: string; year?: number; month?: number; refreshStations?: boolean }
   try { input = await request.json() } catch { return jsonResponse({ error: 'JSON body is required.' }, 400) }
   const year = Number(input.year)
   const month = Number(input.month)
@@ -176,6 +305,26 @@ Deno.serve(async (request) => {
   }
 
   const range = monthRange(year, month)
+  if (input.action === 'snow') {
+    try {
+      return jsonResponse(await importSnow(
+        { year, month, refreshStations: input.refreshStations },
+        { kmaKey, supabaseUrl, serviceRoleKey },
+      ))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Historical snow import failed.'
+      try {
+        await supabaseRequest(`${supabaseUrl}/rest/v1/ingestion_runs`, serviceRoleKey, {
+          method: 'POST', headers: { prefer: 'return=minimal' },
+          body: JSON.stringify({
+            source: 'kma_snow', scope_region_code: '41280', period_start: range.start, period_end: range.end,
+            status: 'failed', accepted_count: 0, excluded_count: 0, message, finished_at: new Date().toISOString(),
+          }),
+        })
+      } catch { /* preserve the original error */ }
+      return jsonResponse({ ok: false, year, month, error: message }, 500)
+    }
+  }
   const errors: string[] = []
   let acceptedCount = 0
   let excludedCount = 0
