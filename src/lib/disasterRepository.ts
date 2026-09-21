@@ -40,10 +40,12 @@ export async function fetchDisasterOverview(location?: { latitude: number; longi
   return data
 }
 
-export async function fetchFloodOverlay(input: { bbox: [number, number, number, number]; width: number; height: number }) {
+export type HazardOverlayLayer = 'flood_trace' | 'urban_flood' | 'national_river_flood' | 'local_river_flood'
+
+export async function fetchHazardOverlay(input: { layer: HazardOverlayLayer; bbox: [number, number, number, number]; width: number; height: number; frequency?: number }) {
   if (!supabase) return null
-  const { data, error } = await supabase.functions.invoke<{ imageDataUrl?: string }>('disaster-overview', {
-    body: { action: 'flood-wms', ...input },
+  const { data, error } = await supabase.functions.invoke<{ imageDataUrl?: string }>('flood-map-overlay', {
+    body: input,
   })
   if (error || !data?.imageDataUrl) return null
   return data.imageDataUrl

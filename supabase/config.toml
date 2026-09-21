@@ -424,3 +424,13 @@ entrypoint = "./functions/historical-weather-import/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/historical-weather-import/*.html" ]
+
+[functions.historical-hydrology-import]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/historical-hydrology-import/index.ts"
+
+[functions.flood-map-overlay]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/flood-map-overlay/index.ts"

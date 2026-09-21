@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Crosshair, KeyRound, LocateFixed, Minus, Plus, Printer, Ruler } from 'lucide-react'
 import type { DisasterArea, DisasterLayerVisibility, DisasterMapPoint, Facility } from './types'
-import { fetchFloodOverlay } from './lib/disasterRepository'
+import { fetchHazardOverlay, type HazardOverlayLayer } from './lib/disasterRepository'
 import { colorForType, haversineKm } from './utils'
 
 interface KakaoMapProps {
@@ -68,7 +68,8 @@ const defaultLayers: DisasterLayerVisibility = {
   snowfall: true,
   waterLevel: true,
   floodTrace: true,
-  riverFlood: true,
+  nationalRiverFlood: true,
+  localRiverFlood: true,
   urbanFlood: true,
   pumpStations: true,
   population: false,
@@ -100,7 +101,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
   const [radiusKm, setRadiusKm] = useState(2)
   const [radiusCenter, setRadiusCenter] = useState<Facility | null>(null)
   const [searchPoint, setSearchPoint] = useState<SearchLocation | null>(null)
-  const [floodOverlayImage, setFloodOverlayImage] = useState('')
+  const [hazardOverlayImages, setHazardOverlayImages] = useState<Partial<Record<HazardOverlayLayer, string>>>({})
 
   useEffect(() => {
     fetch(`${import.meta.env.BASE_URL}data/goyang-boundary.json`)
@@ -296,7 +297,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
     disasterAreasRef.current = disasterAreas
       .filter((area) => (
         (area.kind === 'floodTrace' && layers.floodTrace)
-        || (area.kind === 'riverFlood' && layers.riverFlood)
+        || (area.kind === 'riverFlood' && (layers.nationalRiverFlood || layers.localRiverFlood))
         || (area.kind === 'urbanFlood' && layers.urbanFlood)
         || (area.kind === 'population' && layers.population)
       ))
@@ -314,18 +315,28 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
       disasterAreasRef.current.forEach((polygon) => polygon.setMap(null))
       disasterAreasRef.current = []
     }
-  }, [disasterAreas, layers.floodTrace, layers.riverFlood, layers.urbanFlood, layers.population, mapReady])
+  }, [disasterAreas, layers.floodTrace, layers.nationalRiverFlood, layers.localRiverFlood, layers.urbanFlood, layers.population, mapReady])
 
   useEffect(() => {
     const kakao = window.kakao
     const map = mapRef.current
-    if (!mapReady || !kakao?.maps || !map || !layers.floodTrace || !enableFloodWms) {
-      setFloodOverlayImage('')
+    if (!mapReady || !kakao?.maps || !map || !enableFloodWms) {
+      setHazardOverlayImages({})
+      return
+    }
+    const enabledLayers: HazardOverlayLayer[] = [
+      ...(layers.floodTrace ? ['flood_trace' as const] : []),
+      ...(layers.urbanFlood ? ['urban_flood' as const] : []),
+      ...(layers.nationalRiverFlood ? ['national_river_flood' as const] : []),
+      ...(layers.localRiverFlood ? ['local_river_flood' as const] : []),
+    ]
+    if (!enabledLayers.length) {
+      setHazardOverlayImages({})
       return
     }
     let cancelled = false
     let requestId = 0
-    const clear = () => setFloodOverlayImage('')
+    const clear = () => setHazardOverlayImages({})
     const refresh = async () => {
       const currentId = ++requestId
       const bounds = map.getBounds()
@@ -334,12 +345,17 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
       const element = containerRef.current
       if (!element) return
       clear()
-      const image = await fetchFloodOverlay({
-        bbox: [southWest.getLng(), southWest.getLat(), northEast.getLng(), northEast.getLat()],
+      const bbox: [number, number, number, number] = [southWest.getLng(), southWest.getLat(), northEast.getLng(), northEast.getLat()]
+      const results = await Promise.all(enabledLayers.map(async (layer) => [layer, await fetchHazardOverlay({
+        layer,
+        bbox,
         width: element.clientWidth,
         height: element.clientHeight,
-      })
-      if (!cancelled && currentId === requestId && image) setFloodOverlayImage(image)
+        frequency: 100,
+      })] as const))
+      if (!cancelled && currentId === requestId) {
+        setHazardOverlayImages(Object.fromEntries(results.filter(([, image]) => Boolean(image))) as Partial<Record<HazardOverlayLayer, string>>)
+      }
     }
     kakao.maps.event.addListener(map, 'idle', refresh)
     kakao.maps.event.addListener(map, 'dragstart', clear)
@@ -350,9 +366,9 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
       kakao.maps.event.removeListener(map, 'idle', refresh)
       kakao.maps.event.removeListener(map, 'dragstart', clear)
       kakao.maps.event.removeListener(map, 'zoom_start', clear)
-      setFloodOverlayImage('')
+      setHazardOverlayImages({})
     }
-  }, [layers.floodTrace, mapReady, enableFloodWms])
+  }, [layers.floodTrace, layers.urbanFlood, layers.nationalRiverFlood, layers.localRiverFlood, mapReady, enableFloodWms])
 
   useEffect(() => {
     if (!selected || !mapRef.current || !window.kakao?.maps || selected.latitude == null || selected.longitude == null) return
@@ -409,7 +425,9 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
           </div>
         </div>
       )}
-      {floodOverlayImage && <img className="flood-wms-overlay" src={floodOverlayImage} alt="" aria-hidden="true" />}
+      {(['flood_trace', 'urban_flood', 'national_river_flood', 'local_river_flood'] as HazardOverlayLayer[]).map((layer) => hazardOverlayImages[layer] ? (
+        <img key={layer} className={`flood-wms-overlay ${layer}`} src={hazardOverlayImages[layer]} alt="" aria-hidden="true" />
+      ) : null)}
 
       {!compact && <div className="map-toolbar map-toolbar-right" aria-label="지도 도구">
         <button className="icon-button" onClick={() => zoom(-1)} aria-label="지도 확대"><Plus size={18} /></button>

@@ -23,7 +23,8 @@ const defaultDisasterLayers: DisasterLayerVisibility = {
   snowfall: true,
   waterLevel: true,
   floodTrace: true,
-  riverFlood: true,
+  nationalRiverFlood: true,
+  localRiverFlood: true,
   urbanFlood: true,
   pumpStations: true,
   population: false,
@@ -35,8 +36,9 @@ const layerLabels: { id: DisasterLayerId; label: string }[] = [
   { id: 'snowfall', label: '적설 관측' },
   { id: 'waterLevel', label: '하천 수위' },
   { id: 'floodTrace', label: '침수흔적도' },
-  { id: 'riverFlood', label: '하천범람' },
-  { id: 'urbanFlood', label: '도시침수' },
+  { id: 'nationalRiverFlood', label: '국가하천 범람(100년)' },
+  { id: 'localRiverFlood', label: '지방하천 범람(100년)' },
+  { id: 'urbanFlood', label: '도시침수(100년)' },
   { id: 'pumpStations', label: '배수펌프장' },
   { id: 'population', label: '인구 분포' },
 ]
@@ -268,6 +270,11 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   const goyangFacilities = useMemo(() => facilities.filter((facility) => GOYANG_DISTRICTS.has(facility.district)), [facilities])
   const historicalPoints = useMemo(() => historicalMapPoints(historicalAnalysis, analysisMetric), [historicalAnalysis, analysisMetric])
   const historicalAreas = useMemo(() => historicalMapAreas(historicalAnalysis, analysisMetric), [historicalAnalysis, analysisMetric])
+  const availableHazardLayerCount = useMemo(() => {
+    const floodmap = historicalAnalysis.sources.find((source) => source.source === 'floodmap')
+    const safemap = historicalAnalysis.sources.find((source) => source.source === 'safemap')
+    return (floodmap?.status === 'complete' ? 3 : 0) + (safemap?.status === 'complete' ? 1 : 0)
+  }, [historicalAnalysis.sources])
   const historicalLayers = useMemo<DisasterLayerVisibility>(() => ({
     ...defaultDisasterLayers,
     population: false,
@@ -275,7 +282,8 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
     snowfall: analysisMetric === 'all' || analysisMetric === 'snowfall',
     waterLevel: analysisMetric === 'all' || analysisMetric === 'waterLevel',
     floodTrace: analysisMetric === 'all' || analysisMetric === 'flood',
-    riverFlood: analysisMetric === 'all' || analysisMetric === 'flood',
+    nationalRiverFlood: analysisMetric === 'all' || analysisMetric === 'flood',
+    localRiverFlood: analysisMetric === 'all' || analysisMetric === 'flood',
     urbanFlood: analysisMetric === 'all' || analysisMetric === 'flood',
   }), [analysisMetric])
   const districtGradient = useMemo(() => {
@@ -497,10 +505,10 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
                   <div className="command-sync"><span className={`source-pulse ${historicalAnalysis.summary.observationCount ? 'is-live' : ''}`} />{historicalLoading ? '분석자료 조회 중' : `${analysisStart.slice(0, 4)}~${analysisEnd.slice(0, 4)}년 · 고양시 한정`}</div>
                 </div>
                 <div className="command-metrics">
-                  <div><span><CloudRain />최대 1시간 강수</span><strong>{formatMetric(historicalAnalysis.summary.maxRainfall1h, 'mm')}</strong><small>선택기간 관측 최댓값</small></div>
+                  <div><span><CloudRain />최대 일강수</span><strong>{formatMetric(historicalAnalysis.summary.maxRainfallDaily, 'mm')}</strong><small>선택기간 일 누적 최댓값</small></div>
                   <div><span><Snowflake />최대 적설</span><strong>{formatMetric(historicalAnalysis.summary.maxSnowDepth, 'cm')}</strong><small>고양시 내부 관측소</small></div>
                   <div><span><Waves />최고 하천수위</span><strong>{formatMetric(historicalAnalysis.summary.maxWaterLevel, 'm')}</strong><small>고양시 내부 관측소</small></div>
-                  <div><span><Layers3 />침수흔적 구역</span><strong>{historicalAnalysis.summary.floodTraceCount ? `${historicalAnalysis.summary.floodTraceCount.toLocaleString('ko-KR')}건` : '적재 대기'}</strong><small>고양시 경계 중첩 자료</small></div>
+                  <div><span><Layers3 />위험지도 레이어</span><strong>{availableHazardLayerCount ? `${availableHazardLayerCount}종` : '적재 대기'}</strong><small>고양시 범위 WMS 스냅샷</small></div>
                 </div>
                 <div className="source-status-row" aria-label="외부 API 연계 상태">
                   {historicalAnalysis.sources.length ? historicalAnalysis.sources.map((source) => <span key={source.source} className={`source-chip ${source.status === 'complete' ? 'live' : source.status === 'failed' ? 'error' : 'configured'}`} title={source.message}><i />{historicalSourceLabels[source.source] ?? source.source}</span>) : <span className="source-chip configured"><i />과거자료 초기 적재 대기</span>}
@@ -578,10 +586,10 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
               </div>
 
               <div className="analysis-kpi-grid">
-                <article><CloudRain /><span>최대 1시간 강수</span><strong>{formatMetric(historicalAnalysis.summary.maxRainfall1h, 'mm')}</strong></article>
+                <article><CloudRain /><span>최대 일강수</span><strong>{formatMetric(historicalAnalysis.summary.maxRainfallDaily, 'mm')}</strong></article>
                 <article><Snowflake /><span>최대 적설</span><strong>{formatMetric(historicalAnalysis.summary.maxSnowDepth, 'cm')}</strong></article>
                 <article><Waves /><span>최고 하천수위</span><strong>{formatMetric(historicalAnalysis.summary.maxWaterLevel, 'm')}</strong></article>
-                <article><Layers3 /><span>침수흔적 구역</span><strong>{historicalAnalysis.summary.floodTraceCount ? `${historicalAnalysis.summary.floodTraceCount.toLocaleString('ko-KR')}건` : '적재 대기'}</strong></article>
+                <article><Layers3 /><span>위험지도 레이어</span><strong>{availableHazardLayerCount ? `${availableHazardLayerCount}종` : '적재 대기'}</strong></article>
               </div>
 
               <div className="analysis-workspace">
@@ -595,11 +603,11 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
                     <button type="button" onClick={() => { setAnalysisStart('2020-01-01'); setAnalysisEnd('2025-12-31') }}>기본 6년</button>
                   </div>
                   <label className="field"><span>자료 유형</span><select value={analysisMetric} onChange={(event) => setAnalysisMetric(event.target.value as HistoricalMetricFilter)}><option value="all">전체 자료</option><option value="rainfall">강수량</option><option value="snowfall">적설량</option><option value="waterLevel">하천수위</option><option value="flood">침수·홍수</option></select></label>
-                  <div className="analysis-rule"><strong>지역 제한 기준</strong><span>관측소 좌표와 공간자료가 고양시 경계 내부일 때만 분석합니다.</span></div>
+                  <div className="analysis-rule"><strong>지역·시나리오 기준</strong><span>고양시 경계 내부 자료만 사용하며 홍수위험지도는 100년 빈도를 표시합니다.</span></div>
                   <button className="button primary full" onClick={() => void loadHistorical()} disabled={historicalLoading}><RefreshCcw size={16} className={historicalLoading ? 'is-spinning' : ''} />{historicalLoading ? '조회 중' : '분석자료 조회'}</button>
                 </aside>
 
-                <KakaoMap facilities={goyangFacilities} selected={selected} onSelect={setSelected} allTypes={types} disasterPoints={historicalPoints} disasterAreas={historicalAreas} layers={historicalLayers} enableFloodWms={false} />
+                <KakaoMap facilities={goyangFacilities} selected={selected} onSelect={setSelected} allTypes={types} disasterPoints={historicalPoints} disasterAreas={historicalAreas} layers={historicalLayers} />
 
                 <aside className="analysis-result-panel">
                   <header><span className="eyebrow">분석 범위</span><h2>{analysisStart}~{analysisEnd}</h2><p>고양시 내부 관측·공간자료</p></header>

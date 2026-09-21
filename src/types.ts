@@ -48,7 +48,7 @@ export type ViewName = 'dashboard' | 'map' | 'analysis' | 'nearby' | 'facilities
 
 export type DisasterSourceId = 'weather' | 'hydrology' | 'kwater' | 'flood' | 'pump' | 'population'
 export type DisasterSourceState = 'live' | 'configured' | 'error'
-export type DisasterLayerId = 'facilities' | 'rainfall' | 'snowfall' | 'waterLevel' | 'floodTrace' | 'riverFlood' | 'urbanFlood' | 'pumpStations' | 'population'
+export type DisasterLayerId = 'facilities' | 'rainfall' | 'snowfall' | 'waterLevel' | 'floodTrace' | 'nationalRiverFlood' | 'localRiverFlood' | 'urbanFlood' | 'pumpStations' | 'population'
 
 export interface DisasterSourceStatus {
   id: DisasterSourceId

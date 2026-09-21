@@ -327,9 +327,13 @@ tbody tr:hover { background: #f9fbfd; }
   height: 100%;
   object-fit: fill;
   pointer-events: none;
-  opacity: .42;
+  opacity: .3;
   mix-blend-mode: multiply;
 }
+.flood-wms-overlay.flood_trace { opacity: .44; }
+.flood-wms-overlay.urban_flood { opacity: .3; }
+.flood-wms-overlay.national_river_flood { opacity: .34; }
+.flood-wms-overlay.local_river_flood { opacity: .28; }
 
 .historical-view { display: grid; gap: 16px; }
 .analysis-scope-bar { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px 20px; border: 1px solid #cbd9e8; border-radius: 14px; background: linear-gradient(120deg,#f7fbff,#eef6ff); }
