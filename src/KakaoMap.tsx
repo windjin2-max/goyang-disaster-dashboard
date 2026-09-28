@@ -39,6 +39,28 @@ interface BoundaryImageClip {
   paths: string[]
 }
 
+interface NationalFloodFeature {
+  properties: {
+    districtCode: string
+    districtName: string
+    frequencyYears: number
+    segmentCode: string
+    depthOrder: number
+    depthLabel: string
+    color: string
+  }
+  geometry: {
+    type: 'Polygon' | 'MultiPolygon'
+    coordinates: number[][][] | number[][][][]
+  }
+}
+
+interface NationalFloodSvg {
+  width: number
+  height: number
+  shapes: Array<{ key: string; path: string; color: string }>
+}
+
 const KAKAO_KEY = import.meta.env.VITE_KAKAO_MAP_APP_KEY as string | undefined
 
 function loadKakao(key: string) {
@@ -91,7 +113,7 @@ const hazardLayerMeta: Record<HazardOverlayLayer, { title: string; category: str
     title: '국가하천 범람',
     category: '예상 위험 범위',
     description: '국가하천의 제방 월류·붕괴 등을 가정한 예상 범람도입니다.',
-    source: '홍수위험지도 · 100년 빈도',
+    source: '홍수위험지도 정보제공포털 SHP · 100년 빈도',
   },
   local_river_flood: {
     title: '지방하천 범람',
@@ -135,6 +157,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
   const searchCircleRef = useRef<any>(null)
   const [mapReady, setMapReady] = useState(false)
   const [boundaryFeatures, setBoundaryFeatures] = useState<BoundaryFeature[]>([])
+  const [nationalFloodFeatures, setNationalFloodFeatures] = useState<NationalFloodFeature[]>([])
   const [mapError, setMapError] = useState('')
   const [measureMode, setMeasureMode] = useState(false)
   const [measurePoints, setMeasurePoints] = useState<Facility[]>([])
@@ -143,12 +166,23 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
   const [searchPoint, setSearchPoint] = useState<SearchLocation | null>(null)
   const [hazardOverlayImages, setHazardOverlayImages] = useState<Partial<Record<HazardOverlayLayer, string[]>>>({})
   const [boundaryImageClip, setBoundaryImageClip] = useState<BoundaryImageClip | null>(null)
+  const [nationalFloodSvg, setNationalFloodSvg] = useState<NationalFloodSvg | null>(null)
 
   useEffect(() => {
     fetch(`${import.meta.env.BASE_URL}data/goyang-boundary.json`)
       .then((response) => response.json())
       .then((data: { features: BoundaryFeature[] }) => setBoundaryFeatures(data.features))
       .catch(() => setBoundaryFeatures([]))
+  }, [])
+
+  useEffect(() => {
+    fetch(`${import.meta.env.BASE_URL}data/goyang-national-river-flood-100.geojson`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        return response.json()
+      })
+      .then((data: { features: NationalFloodFeature[] }) => setNationalFloodFeatures(data.features))
+      .catch(() => setNationalFloodFeatures([]))
   }, [])
 
   const facilitiesWithCoords = useMemo(
@@ -370,6 +404,46 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
   useEffect(() => {
     const kakao = window.kakao
     const map = mapRef.current
+    if (!mapReady || !kakao?.maps || !map || !layers.nationalRiverFlood || !nationalFloodFeatures.length) {
+      setNationalFloodSvg(null)
+      return
+    }
+    const clear = () => setNationalFloodSvg(null)
+    const refresh = () => {
+      const element = containerRef.current
+      if (!element) return
+      const projection = map.getProjection()
+      const shapes = nationalFloodFeatures.map((feature) => {
+        const polygons = feature.geometry.type === 'MultiPolygon'
+          ? feature.geometry.coordinates as number[][][][]
+          : [feature.geometry.coordinates as number[][][]]
+        const path = polygons.map((rings) => rings.map((ring) => ring.map(([longitude, latitude], index) => {
+          const point = projection.containerPointFromCoords(new kakao.maps.LatLng(latitude, longitude))
+          return `${index === 0 ? 'M' : 'L'}${point.x.toFixed(1)} ${point.y.toFixed(1)}`
+        }).join(' ') + ' Z').join(' ')).join(' ')
+        return {
+          key: `${feature.properties.districtCode}-${feature.properties.segmentCode}`,
+          path,
+          color: feature.properties.color,
+        }
+      })
+      setNationalFloodSvg({ width: element.clientWidth, height: element.clientHeight, shapes })
+    }
+    kakao.maps.event.addListener(map, 'idle', refresh)
+    kakao.maps.event.addListener(map, 'dragstart', clear)
+    kakao.maps.event.addListener(map, 'zoom_start', clear)
+    refresh()
+    return () => {
+      kakao.maps.event.removeListener(map, 'idle', refresh)
+      kakao.maps.event.removeListener(map, 'dragstart', clear)
+      kakao.maps.event.removeListener(map, 'zoom_start', clear)
+      setNationalFloodSvg(null)
+    }
+  }, [layers.nationalRiverFlood, nationalFloodFeatures, mapReady])
+
+  useEffect(() => {
+    const kakao = window.kakao
+    const map = mapRef.current
     if (!mapReady || !kakao?.maps || !map || !enableFloodWms) {
       setHazardOverlayImages({})
       setBoundaryImageClip(null)
@@ -378,7 +452,6 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
     const enabledLayers: HazardOverlayLayer[] = [
       ...(layers.floodTrace ? ['flood_trace' as const] : []),
       ...(layers.urbanFlood ? ['urban_flood' as const] : []),
-      ...(layers.nationalRiverFlood ? ['national_river_flood' as const] : []),
       ...(layers.localRiverFlood ? ['local_river_flood' as const] : []),
     ]
     if (!enabledLayers.length) {
@@ -512,6 +585,19 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
               clipPath={`url(#${boundaryClipId})`}
             />
           )))}
+        </svg>
+      )}
+
+      {nationalFloodSvg && (
+        <svg
+          className="national-flood-overlay-frame"
+          viewBox={`0 0 ${nationalFloodSvg.width} ${nationalFloodSvg.height}`}
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          {nationalFloodSvg.shapes.map((shape) => (
+            <path key={shape.key} d={shape.path} fill={shape.color} fillOpacity="0.68" fillRule="evenodd" stroke="#3c4c63" strokeOpacity="0.3" strokeWidth="0.6" />
+          ))}
         </svg>
       )}
 
