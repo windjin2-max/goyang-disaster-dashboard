@@ -26,7 +26,6 @@ const defaultDisasterLayers: DisasterLayerVisibility = {
   nationalRiverFlood: true,
   localRiverFlood: true,
   urbanFlood: true,
-  pumpStations: true,
   population: false,
 }
 
@@ -39,7 +38,6 @@ const layerLabels: { id: DisasterLayerId; label: string }[] = [
   { id: 'nationalRiverFlood', label: '국가하천 범람(100년)' },
   { id: 'localRiverFlood', label: '지방하천 범람(100년)' },
   { id: 'urbanFlood', label: '도시침수(100년)' },
-  { id: 'pumpStations', label: '배수펌프장' },
   { id: 'population', label: '인구 분포' },
 ]
 
@@ -244,28 +242,15 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   const coordCount = facilities.filter((item) => item.longitude != null && item.latitude != null).length
   const inspectionCount = facilities.filter((item) => item.status === '점검필요').length
   const missingCoordCount = facilities.length - coordCount
-  const localPumpPoints = useMemo<DisasterMapPoint[]>(() => facilities
-    .filter((facility) => (
-      /배수.*펌프|펌프장/.test(`${facility.name} ${facility.type}`)
-      && GOYANG_DISTRICTS.has(facility.district)
-      && facility.latitude != null
-      && facility.longitude != null
-    ))
-    .map((facility) => ({ id: `facility-${facility.id}`, name: facility.name, kind: 'pumpStation' as const, latitude: facility.latitude!, longitude: facility.longitude!, address: facility.address, source: '시설물 DB' })), [facilities])
-  const disasterPoints = useMemo(() => {
-    const hasPumpApiPoints = disasterOverview.points.some((point) => point.kind === 'pumpStation')
-    const collected = hasPumpApiPoints ? disasterOverview.points : [...disasterOverview.points, ...localPumpPoints]
-    return [...collected, ...overviewLocationPoints(disasterOverview)]
-  }, [disasterOverview, localPumpPoints])
+  const disasterPoints = useMemo(() => (
+    [...disasterOverview.points, ...overviewLocationPoints(disasterOverview)]
+  ), [disasterOverview])
   const nearbyDisasterPoints = useMemo(() => {
     if (!nearbyDisasterOverview) return disasterPoints
-    const hasPumpApiPoints = nearbyDisasterOverview.points.some((point) => point.kind === 'pumpStation')
-    const collected = hasPumpApiPoints ? nearbyDisasterOverview.points : [...nearbyDisasterOverview.points, ...localPumpPoints]
-    return [...collected, ...overviewLocationPoints(nearbyDisasterOverview, nearbyLocation ?? undefined)]
-  }, [nearbyDisasterOverview, nearbyLocation, disasterPoints, localPumpPoints])
+    return [...nearbyDisasterOverview.points, ...overviewLocationPoints(nearbyDisasterOverview, nearbyLocation ?? undefined)]
+  }, [nearbyDisasterOverview, nearbyLocation, disasterPoints])
   const waterLevelPoints = disasterPoints.filter((point) => point.kind === 'waterLevel')
   const risingWaterCount = waterLevelPoints.filter((point) => point.trend === 'up').length
-  const pumpStationCount = disasterPoints.filter((point) => point.kind === 'pumpStation').length
   const liveSourceCount = disasterOverview.sources.filter((source) => source.state === 'live').length
   const goyangFacilities = useMemo(() => facilities.filter((facility) => GOYANG_DISTRICTS.has(facility.district)), [facilities])
   const historicalPoints = useMemo(() => historicalMapPoints(historicalAnalysis, analysisMetric), [historicalAnalysis, analysisMetric])

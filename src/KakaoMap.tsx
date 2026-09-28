@@ -71,7 +71,6 @@ const defaultLayers: DisasterLayerVisibility = {
   nationalRiverFlood: true,
   localRiverFlood: true,
   urbanFlood: true,
-  pumpStations: true,
   population: false,
 }
 
@@ -79,7 +78,6 @@ function pointColor(kind: DisasterMapPoint['kind']) {
   if (kind === 'rainfall') return '#256fd2'
   if (kind === 'snowfall') return '#38a3c7'
   if (kind === 'waterLevel') return '#0f8f9d'
-  if (kind === 'pumpStation') return '#d97706'
   return '#7b61d1'
 }
 
@@ -267,7 +265,6 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
         (point.kind === 'rainfall' && layers.rainfall)
         || (point.kind === 'snowfall' && layers.snowfall)
         || (point.kind === 'waterLevel' && layers.waterLevel)
-        || (point.kind === 'pumpStation' && layers.pumpStations)
         || (point.kind === 'population' && layers.population)
       ))
       .map((point) => {
@@ -286,7 +283,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
       disasterMarkersRef.current.forEach((marker) => marker.setMap(null))
       disasterMarkersRef.current = []
     }
-  }, [disasterPoints, layers.rainfall, layers.snowfall, layers.waterLevel, layers.pumpStations, layers.population, mapReady])
+  }, [disasterPoints, layers.rainfall, layers.snowfall, layers.waterLevel, layers.population, mapReady])
 
   useEffect(() => {
     const kakao = window.kakao
@@ -409,7 +406,6 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
             (point.kind === 'rainfall' && layers.rainfall)
             || (point.kind === 'snowfall' && layers.snowfall)
             || (point.kind === 'waterLevel' && layers.waterLevel)
-            || (point.kind === 'pumpStation' && layers.pumpStations)
             || (point.kind === 'population' && layers.population)
           )).map((point) => (
             <span

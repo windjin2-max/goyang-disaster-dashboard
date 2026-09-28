@@ -6,7 +6,6 @@ const SOURCE_LABELS: Record<DisasterSourceId, string> = {
   hydrology: '한강홍수통제소 수문',
   kwater: 'K-water 우량·수위',
   flood: '생활안전지도 침수흔적',
-  pump: '전국 배수펌프장',
   population: '행정안전부 주민등록 인구',
 }
 

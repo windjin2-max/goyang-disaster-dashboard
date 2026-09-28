@@ -46,9 +46,9 @@ export interface ChangeRecord {
 
 export type ViewName = 'dashboard' | 'map' | 'analysis' | 'nearby' | 'facilities'
 
-export type DisasterSourceId = 'weather' | 'hydrology' | 'kwater' | 'flood' | 'pump' | 'population'
+export type DisasterSourceId = 'weather' | 'hydrology' | 'kwater' | 'flood' | 'population'
 export type DisasterSourceState = 'live' | 'configured' | 'error'
-export type DisasterLayerId = 'facilities' | 'rainfall' | 'snowfall' | 'waterLevel' | 'floodTrace' | 'nationalRiverFlood' | 'localRiverFlood' | 'urbanFlood' | 'pumpStations' | 'population'
+export type DisasterLayerId = 'facilities' | 'rainfall' | 'snowfall' | 'waterLevel' | 'floodTrace' | 'nationalRiverFlood' | 'localRiverFlood' | 'urbanFlood' | 'population'
 
 export interface DisasterSourceStatus {
   id: DisasterSourceId
@@ -69,7 +69,7 @@ export interface WeatherSnapshot {
 export interface DisasterMapPoint {
   id: string
   name: string
-  kind: 'rainfall' | 'snowfall' | 'waterLevel' | 'pumpStation' | 'population'
+  kind: 'rainfall' | 'snowfall' | 'waterLevel' | 'population'
   latitude: number
   longitude: number
   value?: number | null

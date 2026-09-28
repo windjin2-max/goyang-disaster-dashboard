@@ -3,7 +3,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-type SourceId = 'weather' | 'hydrology' | 'kwater' | 'flood' | 'pump' | 'population'
+type SourceId = 'weather' | 'hydrology' | 'kwater' | 'flood' | 'population'
 type SourceState = 'live' | 'configured' | 'error'
 
 interface SourceStatus {
@@ -17,7 +17,7 @@ interface SourceStatus {
 interface MapPoint {
   id: string
   name: string
-  kind: 'rainfall' | 'waterLevel' | 'pumpStation'
+  kind: 'rainfall' | 'waterLevel'
   latitude: number
   longitude: number
   value?: number | null
@@ -33,7 +33,6 @@ const sourceLabels: Record<SourceId, string> = {
   hydrology: '한강홍수통제소 수문',
   kwater: 'K-water 우량·수위',
   flood: '생활안전지도 침수흔적',
-  pump: '전국 배수펌프장',
   population: '행정안전부 주민등록 인구',
 }
 
@@ -54,7 +53,6 @@ const secretNames: Record<SourceId, string[]> = {
   hydrology: ['HRFCO_SERVICE_KEY', 'HRFCO_API_KEY', 'HANRIVER_API_KEY'],
   kwater: ['KWATER_SERVICE_KEY', 'KWATER_API_KEY'],
   flood: ['SAFEMAP_SERVICE_KEY', 'SAFEMAP_API_KEY', 'SAFETY_MAP_API_KEY', 'LIFE_SAFETY_MAP_API_KEY'],
-  pump: ['PUMP_STATION_SERVICE_KEY', 'PUMP_STATION_API_KEY'],
   population: ['MOIS_RESIDENT_POPULATION_SERVICE_KEY', 'MOIS_POPULATION_SERVICE_KEY'],
 }
 
@@ -249,33 +247,6 @@ async function fetchHrfco(location: { latitude: number; longitude: number }, key
   return points
 }
 
-async function fetchPumpStations(location: { latitude: number; longitude: number }, key: string) {
-  const all: Record<string, unknown>[] = []
-  for (let page = 1; page <= 8; page += 1) {
-    const url = new URL('https://api.data.go.kr/openapi/tn_pubr_public_pump_api')
-    url.searchParams.set('serviceKey', decodedKey(key))
-    url.searchParams.set('pageNo', String(page))
-    url.searchParams.set('numOfRows', '1000')
-    url.searchParams.set('type', 'json')
-    const response = await fetch(url, { signal: AbortSignal.timeout(12000) })
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    const payload = await response.json()
-    const items = findItems(payload)
-    all.push(...items)
-    const total = numberValue(payload?.response?.body?.totalCount ?? payload?.totalCount)
-    if (!items.length || (total != null && all.length >= total)) break
-  }
-  const goyangRows = all.filter((row) => {
-    const administrativeArea = String(pick(row, [
-      '시군구명', 'signguNm', 'SIGNGU_NM', '시군구', '관할시군구',
-      '소재지도로명주소', '소재지지번주소', 'rdnmadr', 'lnmadr', '주소', 'address',
-    ]) ?? '')
-    return administrativeArea.includes('고양')
-  })
-  return goyangRows.map((row, index) => pointFromRow(row, 'pumpStation', sourceLabels.pump, index))
-    .filter((point): point is MapPoint => point !== null)
-}
-
 async function fetchPopulation(location: { address?: string }, key: string) {
   const month = previousMonth()
   const url = new URL('https://apis.data.go.kr/1741000/admmPpltnHhStus/selectAdmmPpltnHhStus')
@@ -330,7 +301,7 @@ function pointFromRow(row: Record<string, unknown>, kind: MapPoint['kind'], sour
     kind,
     latitude,
     longitude,
-    value: kind === 'pumpStation' ? null : numberValue(pick(row, valueKeys)),
+    value: numberValue(pick(row, valueKeys)),
     unit: kind === 'rainfall' ? 'mm' : kind === 'waterLevel' ? 'm' : undefined,
     trend: 'unknown',
     address: String(pick(row, ['소재지도로명주소', '소재지지번주소', 'rdnmadr', 'lnmadr', '주소', 'address']) ?? ''),
@@ -419,14 +390,12 @@ Deno.serve(async (request) => {
     }
 
     const hydrologyKey = envAny(secretNames.hydrology)
-    const pumpKey = envAny(secretNames.pump)
     const populationKey = envAny(secretNames.population)
     const kwaterKey = envAny(secretNames.kwater)
     const kwaterEndpoint = envAny(['KWATER_API_URL'])
 
-    const [hydrologyResult, pumpResult, populationResult, kwaterResult] = await Promise.all([
+    const [hydrologyResult, populationResult, kwaterResult] = await Promise.all([
       collectSource('hydrology', hydrologyKey, () => fetchHrfco(location, hydrologyKey)),
-      collectSource('pump', pumpKey, () => fetchPumpStations(location, pumpKey)),
       collectSource('population', populationKey, () => fetchPopulation(location, populationKey)),
       kwaterEndpoint
         ? collectSource('kwater', kwaterKey, async () => {
@@ -447,8 +416,7 @@ Deno.serve(async (request) => {
       ? sourceStatus('flood', 'configured', '침수흔적도 WMS 보안 프록시 사용 가능')
       : sourceStatus('flood', 'error', '생활안전지도 Secret을 찾을 수 없습니다.'))
 
-    sources.push(pumpResult.status, populationResult.status)
-    if (pumpResult.data) points.push(...pumpResult.data)
+    sources.push(populationResult.status)
     if (populationResult.data) population = populationResult.data
 
     return Response.json({
