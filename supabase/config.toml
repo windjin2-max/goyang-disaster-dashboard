@@ -439,3 +439,8 @@ entrypoint = "./functions/flood-map-overlay/index.ts"
 enabled = true
 verify_jwt = true
 entrypoint = "./functions/sgis-admin-boundary/index.ts"
+
+[functions.population-import]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/population-import/index.ts"

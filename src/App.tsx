@@ -8,9 +8,9 @@ import {
 } from 'lucide-react'
 import KakaoMap from './KakaoMap'
 import FacilityModal from './FacilityModal'
-import type { ChangeRecord, DisasterLayerId, DisasterLayerVisibility, DisasterMapPoint, DisasterOverview, Facility, Filters, HistoricalAnalysis, HistoricalMetricFilter, ViewName } from './types'
+import type { ChangeRecord, DisasterLayerId, DisasterLayerVisibility, DisasterMapPoint, DisasterOverview, Facility, Filters, HistoricalAnalysis, HistoricalMetricFilter, PopulationDistribution, ViewName } from './types'
 import { fetchFacilities, fetchFacilityHistory, importFacilities, persistFacility } from './lib/facilityRepository'
-import { emptyDisasterOverview, fetchDisasterOverview, formatMetric } from './lib/disasterRepository'
+import { emptyDisasterOverview, fetchDisasterOverview, fetchPopulationDistribution, formatMetric } from './lib/disasterRepository'
 import { emptyHistoricalAnalysis, fetchHistoricalAnalysis, historicalMapAreas, historicalMapPoints } from './lib/historicalRepository'
 import { CCTV_ALL_TYPE, colorForType, downloadText, filterFacilities, formatCoordinate, haversineKm, isCctvType, toCsv } from './utils'
 
@@ -160,6 +160,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   const [disasterLoading, setDisasterLoading] = useState(false)
   const [disasterError, setDisasterError] = useState('')
   const [disasterLayers, setDisasterLayers] = useState<DisasterLayerVisibility>(defaultDisasterLayers)
+  const [populationDistribution, setPopulationDistribution] = useState<PopulationDistribution | null>(null)
   const [analysisStart, setAnalysisStart] = useState('2020-01-01')
   const [analysisEnd, setAnalysisEnd] = useState('2025-12-31')
   const [analysisMetric, setAnalysisMetric] = useState<HistoricalMetricFilter>('all')
@@ -185,6 +186,12 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   }, [])
 
   useEffect(() => { void loadDatabase() }, [loadDatabase])
+
+  useEffect(() => {
+    void fetchPopulationDistribution()
+      .then(setPopulationDistribution)
+      .catch(() => setPopulationDistribution(null))
+  }, [])
 
   const loadDisasterData = useCallback(async (location?: NearbyLocation) => {
     setDisasterLoading(true)
@@ -523,7 +530,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
               <div className="situation-main-grid">
                 <article className="panel dashboard-map-panel">
                   <header className="panel-header"><div><span className="eyebrow">고양시 전역</span><h2>시설 분포 지도</h2></div><div className="map-panel-actions"><span>지도 표시 {coordCount.toLocaleString('ko-KR')}개</span><button className="text-button" onClick={() => goToMap()}>상황판 열기 <ChevronRight size={15} /></button></div></header>
-                  <KakaoMap facilities={facilities} selected={null} onSelect={(facility) => { setSelected(facility); goToMap() }} allTypes={types} disasterPoints={disasterPoints} disasterAreas={disasterOverview.areas} layers={disasterLayers} compact />
+                  <KakaoMap facilities={facilities} selected={null} onSelect={(facility) => { setSelected(facility); goToMap() }} allTypes={types} disasterPoints={disasterPoints} disasterAreas={disasterOverview.areas} populationDistribution={populationDistribution} layers={disasterLayers} compact />
                 </article>
 
                 <div className="dashboard-side-column">
@@ -648,7 +655,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
                 <div className="filter-summary"><strong>{filtered.length.toLocaleString('ko-KR')}</strong><span>개 시설 표시 중</span></div>
               </aside>
 
-              <KakaoMap facilities={filtered} selected={selected} onSelect={setSelected} allTypes={types} disasterPoints={disasterPoints} disasterAreas={disasterOverview.areas} layers={disasterLayers} />
+              <KakaoMap facilities={filtered} selected={selected} onSelect={setSelected} allTypes={types} disasterPoints={disasterPoints} disasterAreas={disasterOverview.areas} populationDistribution={populationDistribution} layers={disasterLayers} />
 
               <aside className={`detail-panel ${selected ? 'has-selection' : ''}`}>
                 {selected ? <>
@@ -686,6 +693,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
                 onAddressResolved={handleAddressResolved}
                 disasterPoints={nearbyDisasterPoints}
                 disasterAreas={(nearbyDisasterOverview ?? disasterOverview).areas}
+                populationDistribution={populationDistribution}
                 layers={disasterLayers}
               />
 

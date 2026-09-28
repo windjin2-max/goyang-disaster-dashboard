@@ -347,6 +347,15 @@ tbody tr:hover { background: #f9fbfd; }
 .flood-wms-overlay-layer.national_river_flood { opacity: .34; }
 .flood-wms-overlay-layer.local_river_flood { opacity: .28; }
 .hazard-map-legend { position: absolute; z-index: 9; top: 14px; left: 14px; width: min(286px, calc(100% - 84px)); padding: 13px; border: 1px solid rgba(28,58,91,.18); border-radius: 11px; background: rgba(255,255,255,.96); box-shadow: 0 8px 24px rgba(22,44,70,.16); color: #2a3d55; backdrop-filter: blur(5px); }
+.population-map-legend.with-hazard { top: 286px; }
+.population-depth-legend { grid-template-columns: 1fr; }
+.population-info-window { min-width: 190px; padding: 12px 14px; color: #243a52; font-family: inherit; }
+.population-info-window > strong { display: block; color: #153554; font-size: .93rem; }
+.population-info-window > span { display: block; margin-top: 2px; color: #6a7c90; font-size: .7rem; }
+.population-info-window dl { display: grid; gap: 5px; margin: 10px 0 0; }
+.population-info-window dl div { display: flex; justify-content: space-between; gap: 14px; font-size: .73rem; }
+.population-info-window dt { color: #718196; }
+.population-info-window dd { margin: 0; color: #243a52; font-weight: 700; }
 .hazard-legend-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 9px; }
 .hazard-legend-heading > div { display: grid; gap: 2px; }
 .hazard-legend-heading span { color: var(--muted); font-size: .62rem; }

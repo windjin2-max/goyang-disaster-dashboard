@@ -96,6 +96,37 @@ export interface PopulationSnapshot {
   statisticMonth?: string
 }
 
+export interface PopulationBoundaryFeature {
+  type: 'Feature'
+  properties: {
+    adminCode: string
+    adminName: string
+    districtCode: string
+    districtName: string
+    areaSquareKm: number
+    moisAdminCode: string
+    population: number
+    malePopulation: number
+    femalePopulation: number
+    households: number
+    peoplePerHousehold: number | null
+    populationDensity: number
+  }
+  geometry: {
+    type: 'Polygon' | 'MultiPolygon'
+    coordinates: number[][][] | number[][][][]
+  }
+}
+
+export interface PopulationDistribution {
+  type: 'FeatureCollection'
+  statisticMonth: string
+  featureCount: number
+  totalPopulation: number
+  totalHouseholds: number
+  features: PopulationBoundaryFeature[]
+}
+
 export interface DisasterOverview {
   generatedAt: string
   locationLabel: string

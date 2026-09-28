@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Crosshair, KeyRound, LocateFixed, Minus, Plus, Printer, Ruler } from 'lucide-react'
-import type { DisasterArea, DisasterLayerVisibility, DisasterMapPoint, Facility } from './types'
+import type { DisasterArea, DisasterLayerVisibility, DisasterMapPoint, Facility, PopulationDistribution } from './types'
 import { fetchHazardOverlay, type HazardOverlayLayer } from './lib/disasterRepository'
 import { colorForType, haversineKm } from './utils'
 
@@ -16,6 +16,7 @@ interface KakaoMapProps {
   onAddressResolved?: (location: SearchLocation | null, error?: string) => void
   disasterPoints?: DisasterMapPoint[]
   disasterAreas?: DisasterArea[]
+  populationDistribution?: PopulationDistribution | null
   layers?: DisasterLayerVisibility
   enableFloodWms?: boolean
 }
@@ -152,6 +153,18 @@ const floodDepthLegend = [
   { label: '5.0m 이상', color: '#CE3F87' },
 ]
 
+const populationColors = ['#fff4cc', '#cfe8b4', '#82c9b8', '#4292c6', '#6a51a3']
+
+function populationColor(value: number, breaks: number[]) {
+  const index = breaks.findIndex((threshold) => value <= threshold)
+  return populationColors[index < 0 ? populationColors.length - 1 : index]
+}
+
+function shortAdministrativeName(value: string) {
+  const parts = value.trim().split(/\s+/)
+  return parts[parts.length - 1] || value
+}
+
 function pointColor(kind: DisasterMapPoint['kind']) {
   if (kind === 'rainfall') return '#256fd2'
   if (kind === 'snowfall') return '#38a3c7'
@@ -159,7 +172,7 @@ function pointColor(kind: DisasterMapPoint['kind']) {
   return '#7b61d1'
 }
 
-export default function KakaoMap({ facilities, selected, onSelect, allTypes, compact = false, searchRequest, searchRadiusKm = 1, highlightedFacilityIds, onAddressResolved, disasterPoints = [], disasterAreas = [], layers = defaultLayers, enableFloodWms = true }: KakaoMapProps) {
+export default function KakaoMap({ facilities, selected, onSelect, allTypes, compact = false, searchRequest, searchRadiusKm = 1, highlightedFacilityIds, onAddressResolved, disasterPoints = [], disasterAreas = [], populationDistribution = null, layers = defaultLayers, enableFloodWms = true }: KakaoMapProps) {
   const boundaryClipId = `goyang-boundary-${useId().replace(/:/g, '')}`
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
@@ -167,6 +180,8 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
   const markersRef = useRef<any[]>([])
   const disasterMarkersRef = useRef<any[]>([])
   const disasterAreasRef = useRef<any[]>([])
+  const populationAreasRef = useRef<any[]>([])
+  const populationInfoWindowRef = useRef<any>(null)
   const boundaryRef = useRef<any[]>([])
   const searchMarkerRef = useRef<any>(null)
   const searchCircleRef = useRef<any>(null)
@@ -236,6 +251,14 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
           ? 'urban_flood'
           : null
   const activeHazardMeta = activeHazardLayer ? hazardLayerMeta[activeHazardLayer] : null
+  const populationBreaks = useMemo(() => {
+    const values = (populationDistribution?.features ?? [])
+      .map((feature) => Number(feature.properties.populationDensity))
+      .filter(Number.isFinite)
+      .sort((a, b) => a - b)
+    if (!values.length) return []
+    return [0.2, 0.4, 0.6, 0.8].map((ratio) => values[Math.min(values.length - 1, Math.ceil(values.length * ratio) - 1)])
+  }, [populationDistribution])
 
   const handleSelection = (facility: Facility) => {
     onSelect(facility)
@@ -384,7 +407,6 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
         (point.kind === 'rainfall' && layers.rainfall)
         || (point.kind === 'snowfall' && layers.snowfall)
         || (point.kind === 'waterLevel' && layers.waterLevel)
-        || (point.kind === 'population' && layers.population)
       ))
       .map((point) => {
         const value = point.value == null ? '' : ` · ${point.value}${point.unit ?? ''}`
@@ -403,6 +425,71 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
       disasterMarkersRef.current = []
     }
   }, [disasterPoints, layers.rainfall, layers.snowfall, layers.waterLevel, layers.population, mapReady])
+
+  useEffect(() => {
+    const kakao = window.kakao
+    const map = mapRef.current
+    populationAreasRef.current.forEach((polygon) => polygon.setMap(null))
+    populationAreasRef.current = []
+    populationInfoWindowRef.current?.close()
+    populationInfoWindowRef.current = null
+    if (!mapReady || !kakao?.maps || !map || !layers.population || !populationDistribution?.features.length || !populationBreaks.length) return
+
+    populationAreasRef.current = populationDistribution.features.flatMap((feature) => {
+      const polygons = feature.geometry.type === 'MultiPolygon'
+        ? feature.geometry.coordinates as number[][][][]
+        : [feature.geometry.coordinates as number[][][]]
+      return polygons.map((rings) => {
+        const density = Number(feature.properties.populationDensity)
+        const polygon = new kakao.maps.Polygon({
+          map,
+          path: rings.map((ring) => ring.map(([longitude, latitude]) => new kakao.maps.LatLng(latitude, longitude))),
+          strokeWeight: 1.3,
+          strokeColor: '#344b62',
+          strokeOpacity: .72,
+          fillColor: populationColor(density, populationBreaks),
+          fillOpacity: .58,
+        })
+        kakao.maps.event.addListener(polygon, 'mouseover', () => polygon.setOptions({ fillOpacity: .78, strokeWeight: 2 }))
+        kakao.maps.event.addListener(polygon, 'mouseout', () => polygon.setOptions({ fillOpacity: .58, strokeWeight: 1.3 }))
+        kakao.maps.event.addListener(polygon, 'click', (event: any) => {
+          populationInfoWindowRef.current?.close()
+          const content = document.createElement('div')
+          content.className = 'population-info-window'
+          const title = document.createElement('strong')
+          title.textContent = shortAdministrativeName(feature.properties.adminName)
+          const district = document.createElement('span')
+          district.textContent = feature.properties.districtName
+          const metrics = document.createElement('dl')
+          ;[
+            ['총인구', `${feature.properties.population.toLocaleString('ko-KR')}명`],
+            ['인구밀도', `${Math.round(density).toLocaleString('ko-KR')}명/㎢`],
+            ['세대수', `${feature.properties.households.toLocaleString('ko-KR')}세대`],
+          ].forEach(([label, value]) => {
+            const row = document.createElement('div')
+            const term = document.createElement('dt')
+            const detail = document.createElement('dd')
+            term.textContent = label
+            detail.textContent = value
+            row.append(term, detail)
+            metrics.append(row)
+          })
+          content.append(title, district, metrics)
+          const infoWindow = new kakao.maps.InfoWindow({ content, removable: true, position: event.latLng })
+          infoWindow.open(map)
+          populationInfoWindowRef.current = infoWindow
+        })
+        return polygon
+      })
+    })
+
+    return () => {
+      populationAreasRef.current.forEach((polygon) => polygon.setMap(null))
+      populationAreasRef.current = []
+      populationInfoWindowRef.current?.close()
+      populationInfoWindowRef.current = null
+    }
+  }, [layers.population, populationDistribution, populationBreaks, mapReady])
 
   useEffect(() => {
     const kakao = window.kakao
@@ -708,6 +795,27 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
             </div>
           )}
           <footer>출처: {activeHazardMeta.source} · 고양시 경계 내부만 표시</footer>
+        </aside>
+      )}
+
+      {!compact && layers.population && populationDistribution?.features.length && populationBreaks.length > 0 && (
+        <aside className={`hazard-map-legend population-map-legend ${activeHazardLayer ? 'with-hazard' : ''}`} aria-label="행정동별 인구밀도 범례">
+          <div className="hazard-legend-heading">
+            <div><span>행정동 단계구분도</span><strong>인구 분포</strong></div>
+            <b className="forecast">{populationDistribution.statisticMonth.slice(0, 4)}.{populationDistribution.statisticMonth.slice(4, 6)}</b>
+          </div>
+          <p>행정동 면적 대비 주민등록 인구밀도입니다.</p>
+          <div className="depth-legend population-depth-legend">
+            {populationColors.map((color, index) => {
+              const previous = index === 0 ? 0 : Math.round(populationBreaks[index - 1])
+              const current = populationBreaks[index] == null ? null : Math.round(populationBreaks[index])
+              const label = current == null
+                ? `${previous.toLocaleString('ko-KR')}명/㎢ 초과`
+                : `${previous ? `${previous.toLocaleString('ko-KR')} 초과~` : ''}${current.toLocaleString('ko-KR')}명/㎢`
+              return <span key={color}><i style={{ backgroundColor: color }} aria-hidden="true" />{label}</span>
+            })}
+          </div>
+          <footer>행정안전부 주민등록 인구 · 총 {populationDistribution.totalPopulation.toLocaleString('ko-KR')}명</footer>
         </aside>
       )}
 

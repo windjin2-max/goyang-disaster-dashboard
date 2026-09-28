@@ -1,4 +1,4 @@
-import type { DisasterOverview, DisasterSourceId } from '../types'
+import type { DisasterOverview, DisasterSourceId, PopulationDistribution } from '../types'
 import { supabase } from './supabase'
 
 const SOURCE_LABELS: Record<DisasterSourceId, string> = {
@@ -37,6 +37,15 @@ export async function fetchDisasterOverview(location?: { latitude: number; longi
   if (error) throw new Error(`재난 API 조회 실패: ${error.message}`)
   if (!data) throw new Error('재난 API가 빈 응답을 반환했습니다.')
   return data
+}
+
+export async function fetchPopulationDistribution(month?: string) {
+  if (!supabase) throw new Error('Supabase 연결 정보가 없습니다.')
+  const { data, error } = await supabase.rpc('get_population_distribution', { p_month: month ?? null })
+  if (error) throw new Error(`인구 분포 조회 실패: ${error.message}`)
+  const distribution = data as PopulationDistribution | null
+  if (!distribution?.features) throw new Error('인구 분포 데이터가 빈 응답을 반환했습니다.')
+  return distribution
 }
 
 export type HazardOverlayLayer = 'flood_trace' | 'urban_flood' | 'national_river_flood' | 'local_river_flood'
