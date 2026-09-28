@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Crosshair, KeyRound, LocateFixed, Minus, Plus, Printer, Ruler } from 'lucide-react'
 import type { DisasterArea, DisasterLayerVisibility, DisasterMapPoint, Facility } from './types'
 import { fetchHazardOverlay, type HazardOverlayLayer } from './lib/disasterRepository'
@@ -31,6 +31,12 @@ interface BoundaryFeature {
     type: 'Polygon' | 'MultiPolygon'
     coordinates: number[][][] | number[][][][]
   }
+}
+
+interface BoundaryImageClip {
+  width: number
+  height: number
+  paths: string[]
 }
 
 const KAKAO_KEY = import.meta.env.VITE_KAKAO_MAP_APP_KEY as string | undefined
@@ -82,6 +88,7 @@ function pointColor(kind: DisasterMapPoint['kind']) {
 }
 
 export default function KakaoMap({ facilities, selected, onSelect, allTypes, compact = false, searchRequest, searchRadiusKm = 1, highlightedFacilityIds, onAddressResolved, disasterPoints = [], disasterAreas = [], layers = defaultLayers, enableFloodWms = true }: KakaoMapProps) {
+  const boundaryClipId = `goyang-boundary-${useId().replace(/:/g, '')}`
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const clusterRef = useRef<any>(null)
@@ -100,6 +107,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
   const [radiusCenter, setRadiusCenter] = useState<Facility | null>(null)
   const [searchPoint, setSearchPoint] = useState<SearchLocation | null>(null)
   const [hazardOverlayImages, setHazardOverlayImages] = useState<Partial<Record<HazardOverlayLayer, string>>>({})
+  const [boundaryImageClip, setBoundaryImageClip] = useState<BoundaryImageClip | null>(null)
 
   useEffect(() => {
     fetch(`${import.meta.env.BASE_URL}data/goyang-boundary.json`)
@@ -319,6 +327,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
     const map = mapRef.current
     if (!mapReady || !kakao?.maps || !map || !enableFloodWms) {
       setHazardOverlayImages({})
+      setBoundaryImageClip(null)
       return
     }
     const enabledLayers: HazardOverlayLayer[] = [
@@ -342,6 +351,17 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
       const element = containerRef.current
       if (!element) return
       clear()
+      const projection = map.getProjection()
+      const clipPaths = boundaryFeatures.flatMap((feature) => {
+        const polygons = feature.geometry.type === 'MultiPolygon'
+          ? feature.geometry.coordinates as number[][][][]
+          : [feature.geometry.coordinates as number[][][]]
+        return polygons.map((rings) => rings.map((ring) => ring.map(([longitude, latitude], index) => {
+          const point = projection.containerPointFromCoords(new kakao.maps.LatLng(latitude, longitude))
+          return `${index === 0 ? 'M' : 'L'}${point.x.toFixed(2)} ${point.y.toFixed(2)}`
+        }).join(' ') + ' Z').join(' '))
+      })
+      setBoundaryImageClip(clipPaths.length ? { width: element.clientWidth, height: element.clientHeight, paths: clipPaths } : null)
       const bbox: [number, number, number, number] = [southWest.getLng(), southWest.getLat(), northEast.getLng(), northEast.getLat()]
       const results = await Promise.all(enabledLayers.map(async (layer) => [layer, await fetchHazardOverlay({
         layer,
@@ -364,8 +384,9 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
       kakao.maps.event.removeListener(map, 'dragstart', clear)
       kakao.maps.event.removeListener(map, 'zoom_start', clear)
       setHazardOverlayImages({})
+      setBoundaryImageClip(null)
     }
-  }, [layers.floodTrace, layers.urbanFlood, layers.nationalRiverFlood, layers.localRiverFlood, mapReady, enableFloodWms])
+  }, [layers.floodTrace, layers.urbanFlood, layers.nationalRiverFlood, layers.localRiverFlood, boundaryFeatures, mapReady, enableFloodWms])
 
   useEffect(() => {
     if (!selected || !mapRef.current || !window.kakao?.maps || selected.latitude == null || selected.longitude == null) return
@@ -421,9 +442,33 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
           </div>
         </div>
       )}
-      {(['flood_trace', 'urban_flood', 'national_river_flood', 'local_river_flood'] as HazardOverlayLayer[]).map((layer) => hazardOverlayImages[layer] ? (
-        <img key={layer} className={`flood-wms-overlay ${layer}`} src={hazardOverlayImages[layer]} alt="" aria-hidden="true" />
-      ) : null)}
+      {boundaryImageClip && Object.keys(hazardOverlayImages).length > 0 && (
+        <svg
+          className="flood-wms-overlay-frame"
+          viewBox={`0 0 ${boundaryImageClip.width} ${boundaryImageClip.height}`}
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          <defs>
+            <clipPath id={boundaryClipId} clipPathUnits="userSpaceOnUse">
+              {boundaryImageClip.paths.map((path, index) => <path key={index} d={path} clipRule="evenodd" fillRule="evenodd" />)}
+            </clipPath>
+          </defs>
+          {(['flood_trace', 'urban_flood', 'national_river_flood', 'local_river_flood'] as HazardOverlayLayer[]).map((layer) => hazardOverlayImages[layer] ? (
+            <image
+              key={layer}
+              className={`flood-wms-overlay-layer ${layer}`}
+              href={hazardOverlayImages[layer]}
+              x="0"
+              y="0"
+              width={boundaryImageClip.width}
+              height={boundaryImageClip.height}
+              preserveAspectRatio="none"
+              clipPath={`url(#${boundaryClipId})`}
+            />
+          ) : null)}
+        </svg>
+      )}
 
       {!compact && <div className="map-toolbar map-toolbar-right" aria-label="지도 도구">
         <button className="icon-button" onClick={() => zoom(-1)} aria-label="지도 확대"><Plus size={18} /></button>
