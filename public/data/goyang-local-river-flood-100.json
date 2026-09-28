@@ -1,0 +1,24 @@
+{
+  "name": "고양시 100년 빈도 지방하천 하천범람지도",
+  "source": "홍수위험지도 정보제공포털",
+  "sourceCrs": "EPSG:5186",
+  "rasterCrs": "EPSG:3857",
+  "frequencyYears": 100,
+  "districtCodes": [
+    "41281",
+    "41285",
+    "41287"
+  ],
+  "bounds": {
+    "west": 126.68045960965257,
+    "south": 37.57734237712121,
+    "east": 126.98085573653783,
+    "north": 37.73671091063579
+  },
+  "width": 4096,
+  "height": 2745,
+  "featureCount": 14,
+  "ringCount": 113510,
+  "pointCount": 1470689,
+  "image": "goyang-local-river-flood-100.png"
+}

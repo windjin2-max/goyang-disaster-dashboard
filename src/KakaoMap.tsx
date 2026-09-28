@@ -61,6 +61,21 @@ interface StaticFloodSvg {
   shapes: Array<{ key: string; path: string; color: string }>
 }
 
+interface StaticFloodRasterMetadata {
+  image: string
+  bounds: { west: number; south: number; east: number; north: number }
+}
+
+interface StaticFloodRasterPlacement {
+  canvasWidth: number
+  canvasHeight: number
+  x: number
+  y: number
+  width: number
+  height: number
+  imageUrl: string
+}
+
 const KAKAO_KEY = import.meta.env.VITE_KAKAO_MAP_APP_KEY as string | undefined
 
 function loadKakao(key: string) {
@@ -119,7 +134,7 @@ const hazardLayerMeta: Record<HazardOverlayLayer, { title: string; category: str
     title: '지방하천 범람',
     category: '예상 위험 범위',
     description: '지방하천의 제방 월류·붕괴 등을 가정한 예상 범람도입니다.',
-    source: '홍수위험지도 · 100년 빈도',
+    source: '홍수위험지도 정보제공포털 SHP · 100년 빈도',
   },
   urban_flood: {
     title: '도시침수',
@@ -159,6 +174,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
   const [boundaryFeatures, setBoundaryFeatures] = useState<BoundaryFeature[]>([])
   const [nationalFloodFeatures, setNationalFloodFeatures] = useState<StaticFloodFeature[]>([])
   const [urbanFloodFeatures, setUrbanFloodFeatures] = useState<StaticFloodFeature[]>([])
+  const [localRiverFloodRaster, setLocalRiverFloodRaster] = useState<StaticFloodRasterMetadata | null>(null)
   const [mapError, setMapError] = useState('')
   const [measureMode, setMeasureMode] = useState(false)
   const [measurePoints, setMeasurePoints] = useState<Facility[]>([])
@@ -168,6 +184,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
   const [hazardOverlayImages, setHazardOverlayImages] = useState<Partial<Record<HazardOverlayLayer, string[]>>>({})
   const [boundaryImageClip, setBoundaryImageClip] = useState<BoundaryImageClip | null>(null)
   const [staticFloodSvg, setStaticFloodSvg] = useState<StaticFloodSvg | null>(null)
+  const [staticFloodRaster, setStaticFloodRaster] = useState<StaticFloodRasterPlacement | null>(null)
 
   useEffect(() => {
     fetch(`${import.meta.env.BASE_URL}data/goyang-boundary.json`)
@@ -191,6 +208,13 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
       })
       .then((data: { features: StaticFloodFeature[] }) => setUrbanFloodFeatures(data.features))
       .catch(() => setUrbanFloodFeatures([]))
+    fetch(`${import.meta.env.BASE_URL}data/goyang-local-river-flood-100.json`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        return response.json()
+      })
+      .then((data: StaticFloodRasterMetadata) => setLocalRiverFloodRaster(data))
+      .catch(() => setLocalRiverFloodRaster(null))
   }, [])
 
   const facilitiesWithCoords = useMemo(
@@ -457,6 +481,43 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
   useEffect(() => {
     const kakao = window.kakao
     const map = mapRef.current
+    if (!mapReady || !kakao?.maps || !map || !layers.localRiverFlood || !localRiverFloodRaster) {
+      setStaticFloodRaster(null)
+      return
+    }
+    const clear = () => setStaticFloodRaster(null)
+    const refresh = () => {
+      const element = containerRef.current
+      if (!element) return
+      const projection = map.getProjection()
+      const { west, south, east, north } = localRiverFloodRaster.bounds
+      const northWest = projection.containerPointFromCoords(new kakao.maps.LatLng(north, west))
+      const southEast = projection.containerPointFromCoords(new kakao.maps.LatLng(south, east))
+      setStaticFloodRaster({
+        canvasWidth: element.clientWidth,
+        canvasHeight: element.clientHeight,
+        x: northWest.x,
+        y: northWest.y,
+        width: southEast.x - northWest.x,
+        height: southEast.y - northWest.y,
+        imageUrl: `${import.meta.env.BASE_URL}data/${localRiverFloodRaster.image}`,
+      })
+    }
+    kakao.maps.event.addListener(map, 'idle', refresh)
+    kakao.maps.event.addListener(map, 'dragstart', clear)
+    kakao.maps.event.addListener(map, 'zoom_start', clear)
+    refresh()
+    return () => {
+      kakao.maps.event.removeListener(map, 'idle', refresh)
+      kakao.maps.event.removeListener(map, 'dragstart', clear)
+      kakao.maps.event.removeListener(map, 'zoom_start', clear)
+      setStaticFloodRaster(null)
+    }
+  }, [layers.localRiverFlood, localRiverFloodRaster, mapReady])
+
+  useEffect(() => {
+    const kakao = window.kakao
+    const map = mapRef.current
     if (!mapReady || !kakao?.maps || !map || !enableFloodWms) {
       setHazardOverlayImages({})
       setBoundaryImageClip(null)
@@ -464,7 +525,6 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
     }
     const enabledLayers: HazardOverlayLayer[] = [
       ...(layers.floodTrace ? ['flood_trace' as const] : []),
-      ...(layers.localRiverFlood ? ['local_river_flood' as const] : []),
     ]
     if (!enabledLayers.length) {
       setHazardOverlayImages({})
@@ -610,6 +670,25 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
           {staticFloodSvg.shapes.map((shape) => (
             <path key={shape.key} d={shape.path} fill={shape.color} fillOpacity="0.68" fillRule="evenodd" stroke="#3c4c63" strokeOpacity="0.3" strokeWidth="0.6" />
           ))}
+        </svg>
+      )}
+
+      {staticFloodRaster && (
+        <svg
+          className="static-flood-overlay-frame"
+          viewBox={`0 0 ${staticFloodRaster.canvasWidth} ${staticFloodRaster.canvasHeight}`}
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          <image
+            href={staticFloodRaster.imageUrl}
+            x={staticFloodRaster.x}
+            y={staticFloodRaster.y}
+            width={staticFloodRaster.width}
+            height={staticFloodRaster.height}
+            opacity="0.68"
+            preserveAspectRatio="none"
+          />
         </svg>
       )}
 
