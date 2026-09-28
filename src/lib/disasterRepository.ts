@@ -43,11 +43,12 @@ export type HazardOverlayLayer = 'flood_trace' | 'urban_flood' | 'national_river
 
 export async function fetchHazardOverlay(input: { layer: HazardOverlayLayer; bbox: [number, number, number, number]; width: number; height: number; frequency?: number }) {
   if (!supabase) return null
-  const { data, error } = await supabase.functions.invoke<{ imageDataUrl?: string }>('flood-map-overlay', {
+  const { data, error } = await supabase.functions.invoke<{ imageDataUrl?: string; imageDataUrls?: string[] }>('flood-map-overlay', {
     body: input,
   })
-  if (error || !data?.imageDataUrl) return null
-  return data.imageDataUrl
+  if (error || !data) return null
+  const images = data.imageDataUrls?.filter(Boolean) ?? (data.imageDataUrl ? [data.imageDataUrl] : [])
+  return images.length ? images : null
 }
 
 export function formatMetric(value: number | null | undefined, unit: string, fallback = '수집 대기') {

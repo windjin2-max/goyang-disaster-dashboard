@@ -141,7 +141,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
   const [radiusKm, setRadiusKm] = useState(2)
   const [radiusCenter, setRadiusCenter] = useState<Facility | null>(null)
   const [searchPoint, setSearchPoint] = useState<SearchLocation | null>(null)
-  const [hazardOverlayImages, setHazardOverlayImages] = useState<Partial<Record<HazardOverlayLayer, string>>>({})
+  const [hazardOverlayImages, setHazardOverlayImages] = useState<Partial<Record<HazardOverlayLayer, string[]>>>({})
   const [boundaryImageClip, setBoundaryImageClip] = useState<BoundaryImageClip | null>(null)
 
   useEffect(() => {
@@ -416,7 +416,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
         frequency: 100,
       })] as const))
       if (!cancelled && currentId === requestId) {
-        setHazardOverlayImages(Object.fromEntries(results.filter(([, image]) => Boolean(image))) as Partial<Record<HazardOverlayLayer, string>>)
+        setHazardOverlayImages(Object.fromEntries(results.filter(([, images]) => Boolean(images?.length))) as Partial<Record<HazardOverlayLayer, string[]>>)
       }
     }
     kakao.maps.event.addListener(map, 'idle', refresh)
@@ -499,11 +499,11 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
               {boundaryImageClip.paths.map((path, index) => <path key={index} d={path} clipRule="evenodd" fillRule="evenodd" />)}
             </clipPath>
           </defs>
-          {(['flood_trace', 'urban_flood', 'national_river_flood', 'local_river_flood'] as HazardOverlayLayer[]).map((layer) => hazardOverlayImages[layer] ? (
+          {(['flood_trace', 'urban_flood', 'national_river_flood', 'local_river_flood'] as HazardOverlayLayer[]).flatMap((layer) => (hazardOverlayImages[layer] ?? []).map((image, index) => (
             <image
-              key={layer}
+              key={`${layer}-${index}`}
               className={`flood-wms-overlay-layer ${layer}`}
-              href={hazardOverlayImages[layer]}
+              href={image}
               x="0"
               y="0"
               width={boundaryImageClip.width}
@@ -511,7 +511,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
               preserveAspectRatio="none"
               clipPath={`url(#${boundaryClipId})`}
             />
-          ) : null)}
+          )))}
         </svg>
       )}
 

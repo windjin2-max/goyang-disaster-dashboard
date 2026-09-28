@@ -11,6 +11,8 @@ const layerEndpoints: Record<Exclude<LayerCode, 'flood_trace'>, string> = {
   local_river_flood: 'adm-rgn-wms',
 }
 
+const GOYANG_DISTRICT_CODES = ['41281', '41285', '41287'] as const
+
 function floodMapBbox([west, south, east, north]: [number, number, number, number]) {
   return [south, west, north, east]
 }
@@ -42,7 +44,7 @@ function validBbox(value: unknown): value is [number, number, number, number] {
   return east - west <= 1.5 && north - south <= 1.5
 }
 
-async function fetchWmsImage(input: {
+async function fetchWmsImages(input: {
   layer: LayerCode
   bbox: [number, number, number, number]
   width: number
@@ -61,31 +63,37 @@ async function fetchWmsImage(input: {
     : [new URL(`https://data.floodmap.go.kr/api/wms-service/${layerEndpoints[input.layer as Exclude<LayerCode, 'flood_trace'>]}`)]
   let lastError = 'PNG image was not returned.'
   for (const [index, url] of urls.entries()) {
-    url.searchParams.set(isTrace ? (index === 0 ? 'serviceKey' : 'apikey') : 'ServiceKey', decodedKey(secret))
-    url.searchParams.set('srs', 'EPSG:4326')
-    url.searchParams.set(isTrace && index === 0 ? 'bbox' : 'Bbox', (isTrace ? input.bbox : floodMapBbox(input.bbox)).join(','))
-    url.searchParams.set(isTrace && index === 0 ? 'format' : 'Format', 'image/png')
-    url.searchParams.set('width', String(input.width))
-    url.searchParams.set('height', String(input.height))
-    url.searchParams.set('transparent', 'TRUE')
-    if (isTrace && index === 1) {
-      url.searchParams.set('service', 'WMS')
-      url.searchParams.set('request', 'GetMap')
-      url.searchParams.set('version', '1.1.1')
-      url.searchParams.set('layers', 'A2SM_FLUDMARKS')
-      url.searchParams.set('styles', 'A2SM_FludMarks')
-    } else if (!isTrace) {
-      url.searchParams.set('Freq', String(input.frequency))
-      url.searchParams.set('STDG_SGG_CD', '41280')
-    }
+    const districtCodes: Array<string | null> = isTrace ? [null] : [...GOYANG_DISTRICT_CODES]
+    const images: Array<{ bytes: Uint8Array; contentType: string; districtCode: string | null }> = []
+    for (const districtCode of districtCodes) {
+      const requestUrl = new URL(url)
+      requestUrl.searchParams.set(isTrace ? (index === 0 ? 'serviceKey' : 'apikey') : 'ServiceKey', decodedKey(secret))
+      requestUrl.searchParams.set('srs', 'EPSG:4326')
+      requestUrl.searchParams.set(isTrace && index === 0 ? 'bbox' : 'Bbox', (isTrace ? input.bbox : floodMapBbox(input.bbox)).join(','))
+      requestUrl.searchParams.set(isTrace && index === 0 ? 'format' : 'Format', 'image/png')
+      requestUrl.searchParams.set('width', String(input.width))
+      requestUrl.searchParams.set('height', String(input.height))
+      requestUrl.searchParams.set('transparent', 'TRUE')
+      if (isTrace && index === 1) {
+        requestUrl.searchParams.set('service', 'WMS')
+        requestUrl.searchParams.set('request', 'GetMap')
+        requestUrl.searchParams.set('version', '1.1.1')
+        requestUrl.searchParams.set('layers', 'A2SM_FLUDMARKS')
+        requestUrl.searchParams.set('styles', 'A2SM_FludMarks')
+      } else if (!isTrace && districtCode) {
+        requestUrl.searchParams.set('Freq', String(input.frequency))
+        requestUrl.searchParams.set('STDG_SGG_CD', districtCode)
+      }
 
-    const response = await fetch(url, { signal: AbortSignal.timeout(60000) })
-    const contentType = response.headers.get('content-type') ?? ''
-    const bytes = new Uint8Array(await response.arrayBuffer())
-    const isPng = contentType.includes('image/png') && bytes.length > 8
-      && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
-    if (response.ok && isPng) return { bytes, contentType: 'image/png' }
-    lastError = `WMS ${response.status}: ${new TextDecoder().decode(bytes.slice(0, 240)).replace(secret, '[REDACTED]')}`
+      const response = await fetch(requestUrl, { signal: AbortSignal.timeout(60000) })
+      const contentType = response.headers.get('content-type') ?? ''
+      const bytes = new Uint8Array(await response.arrayBuffer())
+      const isPng = contentType.includes('image/png') && bytes.length > 8
+        && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
+      if (response.ok && isPng) images.push({ bytes, contentType: 'image/png', districtCode })
+      else lastError = `WMS ${response.status}: ${new TextDecoder().decode(bytes.slice(0, 240)).replace(secret, '[REDACTED]')}`
+    }
+    if (images.length) return images
   }
   throw new Error(lastError)
 }
@@ -110,12 +118,15 @@ Deno.serve(async (request) => {
     const width = Math.max(256, Math.min(1024, Math.round(Number(input.width) || 768)))
     const height = Math.max(256, Math.min(1024, Math.round(Number(input.height) || 640)))
     const frequency = [50, 80, 100, 200, 500].includes(Number(input.frequency)) ? Number(input.frequency) : 100
-    const result = await fetchWmsImage({ layer: input.layer, bbox: input.bbox, width, height, frequency })
+    const results = await fetchWmsImages({ layer: input.layer, bbox: input.bbox, width, height, frequency })
+    const imageDataUrls = results.map((result) => `data:${result.contentType};base64,${bytesToBase64(result.bytes)}`)
 
     return jsonResponse({
       layer: input.layer,
       frequency: input.layer === 'flood_trace' ? null : frequency,
-      imageDataUrl: `data:${result.contentType};base64,${bytesToBase64(result.bytes)}`,
+      districtCodes: input.layer === 'flood_trace' ? [] : results.map((result) => result.districtCode),
+      imageDataUrl: imageDataUrls[0],
+      imageDataUrls,
       source: input.layer === 'flood_trace' ? '생활안전지도' : '홍수위험지도 정보시스템',
     }, 200, 'private, max-age=900')
   } catch (error) {
