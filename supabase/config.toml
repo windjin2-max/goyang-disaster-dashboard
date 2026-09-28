@@ -434,3 +434,8 @@ entrypoint = "./functions/historical-hydrology-import/index.ts"
 enabled = true
 verify_jwt = true
 entrypoint = "./functions/flood-map-overlay/index.ts"
+
+[functions.sgis-admin-boundary]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/sgis-admin-boundary/index.ts"
