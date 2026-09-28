@@ -371,6 +371,7 @@ tbody tr:hover { background: #f9fbfd; }
 .trace-legend-row i { height: 20px; background: repeating-linear-gradient(135deg,#d33f49 0 5px,#ef8e94 5px 10px); }
 .trace-legend-row small { color: var(--muted); font-size: .58rem; }
 .hazard-map-legend footer { margin-top: 10px; padding-top: 8px; border-top: 1px solid #e3eaf1; color: var(--muted); font-size: .58rem; line-height: 1.4; }
+.hazard-map-legend footer span { display: block; }
 
 .historical-view { display: grid; gap: 16px; }
 .analysis-scope-bar { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px 20px; border: 1px solid #cbd9e8; border-radius: 14px; background: linear-gradient(120deg,#f7fbff,#eef6ff); }
@@ -411,6 +412,7 @@ tbody tr:hover { background: #f9fbfd; }
 .source-coverage-list b.complete { color: #177a53; }
 .source-coverage-list b.failed { color: #b83a43; }
 .source-coverage-list small { grid-column: 1 / -1; color: var(--slate-500); }
+.source-coverage-list .source-data-date { color: #46647f; font-weight: 650; }
 .analysis-table-panel { overflow: hidden; }
 .analysis-table-panel td small { display: block; margin-top: 2px; color: var(--slate-500); }
 

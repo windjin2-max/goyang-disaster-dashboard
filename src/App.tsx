@@ -265,6 +265,31 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   const goyangFacilities = useMemo(() => facilities.filter((facility) => GOYANG_DISTRICTS.has(facility.district)), [facilities])
   const historicalPoints = useMemo(() => historicalMapPoints(historicalAnalysis, analysisMetric), [historicalAnalysis, analysisMetric])
   const historicalAreas = useMemo(() => historicalMapAreas(historicalAnalysis, analysisMetric), [historicalAnalysis, analysisMetric])
+  const historicalSourceNames = useMemo(() => (
+    historicalAnalysis.sources.map((source) => historicalSourceLabels[source.source] ?? source.source).join(' · ')
+  ), [historicalAnalysis.sources])
+  const historicalSourceRanges = useMemo(() => {
+    const ranges = new globalThis.Map<string, { start: string; end: string }>()
+    historicalAnalysis.stations.forEach((station) => {
+      if (!station.firstObservedAt && !station.lastObservedAt) return
+      const current = ranges.get(station.source)
+      const start = station.firstObservedAt || station.lastObservedAt || ''
+      const end = station.lastObservedAt || station.firstObservedAt || ''
+      ranges.set(station.source, {
+        start: !current?.start || (start && start < current.start) ? start : current.start,
+        end: !current?.end || (end && end > current.end) ? end : current.end,
+      })
+    })
+    return ranges
+  }, [historicalAnalysis.stations])
+  const historicalDataRange = useMemo(() => {
+    const ranges = [...historicalSourceRanges.values()]
+    if (!ranges.length) return '관측자료 없음'
+    const start = ranges.map((range) => range.start).filter(Boolean).sort()[0]
+    const sortedEnds = ranges.map((range) => range.end).filter(Boolean).sort()
+    const end = sortedEnds[sortedEnds.length - 1]
+    return start && end ? `${start.slice(0, 10)} ~ ${end.slice(0, 10)}` : '관측기간 미확인'
+  }, [historicalSourceRanges])
   const availableHazardLayerCount = useMemo(() => {
     const floodmap = historicalAnalysis.sources.find((source) => source.source === 'floodmap')
     const safemap = historicalAnalysis.sources.find((source) => source.source === 'safemap')
@@ -619,13 +644,18 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
                     <div><dt>관측소</dt><dd>{historicalAnalysis.summary.stationCount.toLocaleString('ko-KR')}개소</dd></div>
                     <div><dt>관측자료</dt><dd>{historicalAnalysis.summary.observationCount.toLocaleString('ko-KR')}건</dd></div>
                     <div><dt>분석 완료 시설</dt><dd>{historicalAnalysis.summary.analysedFacilityCount.toLocaleString('ko-KR')}개</dd></div>
-                    <div><dt>자료 기준일</dt><dd>{historicalAnalysis.generatedAt ? new Date(historicalAnalysis.generatedAt).toLocaleDateString('ko-KR') : '적재 대기'}</dd></div>
+                    <div><dt>데이터 출처</dt><dd>{historicalSourceNames || '적재 대기'}</dd></div>
+                    <div><dt>데이터 기간</dt><dd>{historicalDataRange}</dd></div>
+                    <div><dt>조회 생성일</dt><dd>{historicalAnalysis.generatedAt ? new Date(historicalAnalysis.generatedAt).toLocaleDateString('ko-KR') : '적재 대기'}</dd></div>
                   </dl>
                   {!historicalAnalysis.schemaReady && <div className="analysis-empty-note"><Database size={20} /><strong>분석 DB 준비 중</strong><span>구조 적용 후 과거 관측자료를 순차적으로 적재합니다.</span></div>}
                   {historicalError && <div className="nearby-error" role="alert">{historicalError}</div>}
                   <div className="source-coverage-list">
                     <strong>자료 적재 현황</strong>
-                    {historicalAnalysis.sources.length ? historicalAnalysis.sources.map((source) => <div key={source.source}><span>{historicalSourceLabels[source.source] ?? source.source}</span><b className={source.status}>{source.status === 'complete' ? '완료' : source.status === 'running' ? '수집 중' : source.status === 'failed' ? '실패' : '대기'}</b><small>{source.acceptedCount.toLocaleString('ko-KR')}건 · 관외 제외 {source.excludedCount.toLocaleString('ko-KR')}건</small></div>) : <p>아직 적재 이력이 없습니다.</p>}
+                    {historicalAnalysis.sources.length ? historicalAnalysis.sources.map((source) => {
+                      const range = historicalSourceRanges.get(source.source)
+                      return <div key={source.source}><span>{historicalSourceLabels[source.source] ?? source.source}</span><b className={source.status}>{source.status === 'complete' ? '완료' : source.status === 'running' ? '수집 중' : source.status === 'failed' ? '실패' : '대기'}</b><small>{source.acceptedCount.toLocaleString('ko-KR')}건 · 관외 제외 {source.excludedCount.toLocaleString('ko-KR')}건</small><small className="source-data-date">{range ? `데이터 ${range.start.slice(0, 10)} ~ ${range.end.slice(0, 10)}` : source.finishedAt ? `자료 적재일 ${source.finishedAt.slice(0, 10)}` : '데이터 날짜 미확인'}</small></div>
+                    }) : <p>아직 적재 이력이 없습니다.</p>}
                   </div>
                 </aside>
               </div>

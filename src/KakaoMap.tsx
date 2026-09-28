@@ -118,30 +118,34 @@ const defaultLayers: DisasterLayerVisibility = {
   population: false,
 }
 
-const hazardLayerMeta: Record<HazardOverlayLayer, { title: string; category: string; description: string; source: string }> = {
+const hazardLayerMeta: Record<HazardOverlayLayer, { title: string; category: string; description: string; source: string; dataDate: string }> = {
   flood_trace: {
     title: '침수흔적도',
     category: '실제 침수 이력',
     description: '재해 발생 후 조사·측량한 과거 침수 구역입니다.',
     source: '생활안전지도',
+    dataDate: '제공기관 최신 WMS · 원자료 기준일 미표기',
   },
   national_river_flood: {
     title: '국가하천 범람',
     category: '예상 위험 범위',
     description: '국가하천의 제방 월류·붕괴 등을 가정한 예상 범람도입니다.',
     source: '홍수위험지도 정보제공포털 SHP · 100년 빈도',
+    dataDate: '원자료 기준일 미표기 · 적용일 2026.09.28',
   },
   local_river_flood: {
     title: '지방하천 범람',
     category: '예상 위험 범위',
     description: '지방하천의 제방 월류·붕괴 등을 가정한 예상 범람도입니다.',
     source: '홍수위험지도 정보제공포털 SHP · 100년 빈도',
+    dataDate: '원자료 기준일 미표기 · 적용일 2026.09.28',
   },
   urban_flood: {
     title: '도시침수',
     category: '예상 위험 범위',
     description: '배수시설 용량 초과·고장 등을 가정한 내수침수 예상도입니다.',
     source: '홍수위험지도 정보제공포털 SHP · 100년 빈도',
+    dataDate: '원자료 기준일 미표기 · 적용일 2026.09.28',
   },
 }
 
@@ -794,7 +798,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
               {floodDepthLegend.map((item) => <span key={item.label}><i style={{ backgroundColor: item.color }} aria-hidden="true" />{item.label}</span>)}
             </div>
           )}
-          <footer>출처: {activeHazardMeta.source} · 고양시 경계 내부만 표시</footer>
+          <footer><span>출처: {activeHazardMeta.source}</span><span>데이터 날짜: {activeHazardMeta.dataDate}</span><span>표시 범위: 고양시 경계 내부</span></footer>
         </aside>
       )}
 
@@ -815,7 +819,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
               return <span key={color}><i style={{ backgroundColor: color }} aria-hidden="true" />{label}</span>
             })}
           </div>
-          <footer>행정안전부 주민등록 인구 · 총 {populationDistribution.totalPopulation.toLocaleString('ko-KR')}명</footer>
+          <footer><span>출처: 행정안전부 주민등록 인구</span><span>데이터 날짜: {populationDistribution.statisticMonth.slice(0, 4)}년 {populationDistribution.statisticMonth.slice(4, 6)}월 말 기준</span><span>총 {populationDistribution.totalPopulation.toLocaleString('ko-KR')}명</span></footer>
         </aside>
       )}
 
