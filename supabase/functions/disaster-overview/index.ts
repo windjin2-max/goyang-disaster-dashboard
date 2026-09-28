@@ -434,7 +434,7 @@ Deno.serve(async (request) => {
           return findItems(payload).map((row, index) => pointFromRow(row, 'rainfall', sourceLabels.kwater, index)).filter((point): point is MapPoint => point !== null)
         })
         : Promise.resolve({ status: kwaterKey
-          ? sourceStatus('kwater', 'configured', '인증키 등록 완료 · 관측소 코드 매핑 대기')
+          ? sourceStatus('kwater', 'configured', 'API 연결 완료 · 고양시 수위 관측소 없음')
           : sourceStatus('kwater', 'error', 'Secret을 찾을 수 없습니다.'), data: undefined as MapPoint[] | undefined }),
     ])
 
