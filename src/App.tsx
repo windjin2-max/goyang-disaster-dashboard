@@ -17,15 +17,17 @@ import { CCTV_ALL_TYPE, colorForType, downloadText, filterFacilities, formatCoor
 const emptyFilters: Filters = { query: '', type: '', status: '', district: '', agency: '' }
 const defaultMapFilters: Filters = { ...emptyFilters, status: '운영중' }
 const GOYANG_DISTRICTS = new Set(['덕양구', '일산동구', '일산서구'])
+type HazardLayerId = 'floodTrace' | 'nationalRiverFlood' | 'localRiverFlood' | 'urbanFlood'
+const hazardLayerIds: HazardLayerId[] = ['floodTrace', 'nationalRiverFlood', 'localRiverFlood', 'urbanFlood']
 const defaultDisasterLayers: DisasterLayerVisibility = {
   facilities: true,
   rainfall: true,
   snowfall: true,
   waterLevel: true,
   floodTrace: true,
-  nationalRiverFlood: true,
-  localRiverFlood: true,
-  urbanFlood: true,
+  nationalRiverFlood: false,
+  localRiverFlood: false,
+  urbanFlood: false,
   population: false,
 }
 
@@ -161,6 +163,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   const [analysisStart, setAnalysisStart] = useState('2020-01-01')
   const [analysisEnd, setAnalysisEnd] = useState('2025-12-31')
   const [analysisMetric, setAnalysisMetric] = useState<HistoricalMetricFilter>('all')
+  const [analysisFloodLayer, setAnalysisFloodLayer] = useState<HazardLayerId>('floodTrace')
   const [historicalAnalysis, setHistoricalAnalysis] = useState<HistoricalAnalysis>(() => emptyHistoricalAnalysis())
   const [historicalLoading, setHistoricalLoading] = useState(false)
   const [historicalError, setHistoricalError] = useState('')
@@ -266,11 +269,11 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
     rainfall: analysisMetric === 'all' || analysisMetric === 'rainfall',
     snowfall: analysisMetric === 'all' || analysisMetric === 'snowfall',
     waterLevel: analysisMetric === 'all' || analysisMetric === 'waterLevel',
-    floodTrace: analysisMetric === 'all' || analysisMetric === 'flood',
-    nationalRiverFlood: analysisMetric === 'all' || analysisMetric === 'flood',
-    localRiverFlood: analysisMetric === 'all' || analysisMetric === 'flood',
-    urbanFlood: analysisMetric === 'all' || analysisMetric === 'flood',
-  }), [analysisMetric])
+    floodTrace: (analysisMetric === 'all' || analysisMetric === 'flood') && analysisFloodLayer === 'floodTrace',
+    nationalRiverFlood: (analysisMetric === 'all' || analysisMetric === 'flood') && analysisFloodLayer === 'nationalRiverFlood',
+    localRiverFlood: (analysisMetric === 'all' || analysisMetric === 'flood') && analysisFloodLayer === 'localRiverFlood',
+    urbanFlood: (analysisMetric === 'all' || analysisMetric === 'flood') && analysisFloodLayer === 'urbanFlood',
+  }), [analysisMetric, analysisFloodLayer])
   const districtGradient = useMemo(() => {
     if (!facilities.length || !districtCounts.length) return '#dce4ee'
     const colors = ['#256fd2', '#16a1b3', '#7b61d1', '#e38b2c', '#66768c']
@@ -293,6 +296,14 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   const nearbyRisk = calculateReferenceRisk(nearbyDisasterOverview ?? disasterOverview)
 
   const notify = (message: string) => setToast(message)
+  const toggleDisasterLayer = (layerId: DisasterLayerId) => {
+    setDisasterLayers((current) => {
+      if (!hazardLayerIds.includes(layerId as HazardLayerId)) return { ...current, [layerId]: !current[layerId] }
+      const next = { ...current }
+      hazardLayerIds.forEach((id) => { next[id] = id === layerId ? !current[layerId] : false })
+      return next
+    })
+  }
   const goToMap = (nextFilters: Partial<Filters> = {}) => {
     setFilters({ ...emptyFilters, ...nextFilters })
     setView('map')
@@ -588,6 +599,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
                     <button type="button" onClick={() => { setAnalysisStart('2020-01-01'); setAnalysisEnd('2025-12-31') }}>기본 6년</button>
                   </div>
                   <label className="field"><span>자료 유형</span><select value={analysisMetric} onChange={(event) => setAnalysisMetric(event.target.value as HistoricalMetricFilter)}><option value="all">전체 자료</option><option value="rainfall">강수량</option><option value="snowfall">적설량</option><option value="waterLevel">하천수위</option><option value="flood">침수·홍수</option></select></label>
+                  <label className="field"><span>침수·홍수 지도</span><select value={analysisFloodLayer} onChange={(event) => setAnalysisFloodLayer(event.target.value as HazardLayerId)} disabled={analysisMetric !== 'all' && analysisMetric !== 'flood'}><option value="floodTrace">침수흔적도 · 실제 이력</option><option value="nationalRiverFlood">국가하천 범람 · 예상</option><option value="localRiverFlood">지방하천 범람 · 예상</option><option value="urbanFlood">도시침수 · 예상</option></select></label>
                   <div className="analysis-rule"><strong>지역·시나리오 기준</strong><span>고양시 경계 내부 자료만 사용하며 홍수위험지도는 100년 빈도를 표시합니다.</span></div>
                   <button className="button primary full" onClick={() => void loadHistorical()} disabled={historicalLoading}><RefreshCcw size={16} className={historicalLoading ? 'is-spinning' : ''} />{historicalLoading ? '조회 중' : '분석자료 조회'}</button>
                 </aside>
@@ -629,7 +641,8 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
                 <label className="field"><span>담당 기관</span><select value={filters.agency} onChange={(event) => setFilters((current) => ({ ...current, agency: event.target.value }))}><option value="">전체 기관</option>{agencies.map((value) => <option key={value}>{value}</option>)}</select></label>
                 <fieldset className="layer-fieldset">
                   <legend><Layers3 size={15} />재난 지도 레이어</legend>
-                  {layerLabels.map((layer) => <label key={layer.id}><input type="checkbox" checked={disasterLayers[layer.id]} onChange={() => setDisasterLayers((current) => ({ ...current, [layer.id]: !current[layer.id] }))} /><span>{layer.label}</span></label>)}
+                  {layerLabels.map((layer) => <label key={layer.id}><input type="checkbox" checked={disasterLayers[layer.id]} onChange={() => toggleDisasterLayer(layer.id)} /><span>{layer.label}</span></label>)}
+                  <small className="layer-fieldset-note">침수·범람 지도는 색상 혼합을 막기 위해 한 번에 하나만 표시됩니다.</small>
                 </fieldset>
                 <button className="button secondary full" onClick={() => setFilters(defaultMapFilters)}><RefreshCcw size={16} />필터 초기화</button>
                 <div className="filter-summary"><strong>{filtered.length.toLocaleString('ko-KR')}</strong><span>개 시설 표시 중</span></div>

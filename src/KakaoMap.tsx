@@ -74,11 +74,46 @@ const defaultLayers: DisasterLayerVisibility = {
   snowfall: true,
   waterLevel: true,
   floodTrace: true,
-  nationalRiverFlood: true,
-  localRiverFlood: true,
-  urbanFlood: true,
+  nationalRiverFlood: false,
+  localRiverFlood: false,
+  urbanFlood: false,
   population: false,
 }
+
+const hazardLayerMeta: Record<HazardOverlayLayer, { title: string; category: string; description: string; source: string }> = {
+  flood_trace: {
+    title: '침수흔적도',
+    category: '실제 침수 이력',
+    description: '재해 발생 후 조사·측량한 과거 침수 구역입니다.',
+    source: '생활안전지도',
+  },
+  national_river_flood: {
+    title: '국가하천 범람',
+    category: '예상 위험 범위',
+    description: '국가하천의 제방 월류·붕괴 등을 가정한 예상 범람도입니다.',
+    source: '홍수위험지도 · 100년 빈도',
+  },
+  local_river_flood: {
+    title: '지방하천 범람',
+    category: '예상 위험 범위',
+    description: '지방하천의 제방 월류·붕괴 등을 가정한 예상 범람도입니다.',
+    source: '홍수위험지도 · 100년 빈도',
+  },
+  urban_flood: {
+    title: '도시침수',
+    category: '예상 위험 범위',
+    description: '배수시설 용량 초과·고장 등을 가정한 내수침수 예상도입니다.',
+    source: '홍수위험지도 · 100년 빈도',
+  },
+}
+
+const floodDepthLegend = [
+  { label: '0.5m 이하', color: '#FDFBC7' },
+  { label: '0.5~1.0m', color: '#E6FF99' },
+  { label: '1.0~2.0m', color: '#38FEFD' },
+  { label: '2.0~5.0m', color: '#CE9AFE' },
+  { label: '5.0m 이상', color: '#CE3F87' },
+]
 
 function pointColor(kind: DisasterMapPoint['kind']) {
   if (kind === 'rainfall') return '#256fd2'
@@ -125,6 +160,16 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
     if (!radiusCenter) return facilitiesWithCoords
     return facilitiesWithCoords.filter((facility) => (haversineKm(radiusCenter, facility) ?? Infinity) <= radiusKm)
   }, [facilitiesWithCoords, radiusCenter, radiusKm])
+  const activeHazardLayer: HazardOverlayLayer | null = layers.floodTrace
+    ? 'flood_trace'
+    : layers.nationalRiverFlood
+      ? 'national_river_flood'
+      : layers.localRiverFlood
+        ? 'local_river_flood'
+        : layers.urbanFlood
+          ? 'urban_flood'
+          : null
+  const activeHazardMeta = activeHazardLayer ? hazardLayerMeta[activeHazardLayer] : null
 
   const handleSelection = (facility: Facility) => {
     onSelect(facility)
@@ -468,6 +513,25 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
             />
           ) : null)}
         </svg>
+      )}
+
+      {!compact && enableFloodWms && activeHazardLayer && activeHazardMeta && (
+        <aside className="hazard-map-legend" aria-label={`${activeHazardMeta.title} 범례`}>
+          <div className="hazard-legend-heading">
+            <div><span>현재 지도 레이어</span><strong>{activeHazardMeta.title}</strong></div>
+            <b className={activeHazardLayer === 'flood_trace' ? 'history' : 'forecast'}>{activeHazardMeta.category}</b>
+          </div>
+          <p>{activeHazardMeta.description}</p>
+          {activeHazardLayer === 'flood_trace' ? (
+            <div className="trace-legend-row"><i aria-hidden="true" /><span>과거 침수 조사 구역<br /><small>원본 지도 색상 기준</small></span></div>
+          ) : (
+            <div className="depth-legend">
+              <span className="depth-legend-title">예상 침수심</span>
+              {floodDepthLegend.map((item) => <span key={item.label}><i style={{ backgroundColor: item.color }} aria-hidden="true" />{item.label}</span>)}
+            </div>
+          )}
+          <footer>출처: {activeHazardMeta.source} · 고양시 경계 내부만 표시</footer>
+        </aside>
       )}
 
       {!compact && <div className="map-toolbar map-toolbar-right" aria-label="지도 도구">
