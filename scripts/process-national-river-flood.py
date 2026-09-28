@@ -42,7 +42,7 @@ def rounded_coordinates(value):
     return value
 
 
-def convert_archive(archive: Path, transformer: Transformer, tolerance: float):
+def convert_archive(archive: Path, transformer: Transformer, tolerance: float, map_type: str):
     with tempfile.TemporaryDirectory() as temp_dir:
         with zipfile.ZipFile(archive) as source:
             source.extractall(temp_dir)
@@ -52,6 +52,8 @@ def convert_archive(archive: Path, transformer: Transformer, tolerance: float):
 
             for shape_record in reader.iterShapeRecords():
                 properties = dict(zip(field_names, shape_record.record))
+                if shape_record.shape.shapeType == shapefile.NULL:
+                    continue
                 district_code = str(properties["SGG_CD"])
                 segment_code = str(properties["SEG_CODE"])
                 depth_order, depth_label, color = DEPTH_CLASSES[segment_code]
@@ -67,7 +69,7 @@ def convert_archive(archive: Path, transformer: Transformer, tolerance: float):
                     "type": "Feature",
                     "properties": {
                         "source": "홍수위험지도 정보제공포털",
-                        "mapType": "국가하천 하천범람지도",
+                        "mapType": map_type,
                         "districtCode": district_code,
                         "districtName": DISTRICT_NAMES[district_code],
                         "frequencyYears": int(properties["FLDLV_FREQ"]),
@@ -88,12 +90,14 @@ def main():
     parser.add_argument("archives", nargs="+", type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--simplify-meters", type=float, default=0.0)
+    parser.add_argument("--map-type", default="국가하천 하천범람지도")
+    parser.add_argument("--collection-name", default="고양시 100년 빈도 국가하천 하천범람지도")
     args = parser.parse_args()
 
     transformer = Transformer.from_crs("EPSG:5186", "EPSG:4326", always_xy=True)
     features = []
     for archive in args.archives:
-        features.extend(convert_archive(archive, transformer, args.simplify_meters))
+        features.extend(convert_archive(archive, transformer, args.simplify_meters, args.map_type))
 
     features.sort(key=lambda feature: (
         feature["properties"]["depthOrder"],
@@ -101,12 +105,13 @@ def main():
     ))
     output = {
         "type": "FeatureCollection",
-        "name": "고양시 100년 빈도 국가하천 하천범람지도",
+        "name": args.collection_name,
         "crs": {"type": "name", "properties": {"name": "urn:ogc:def:crs:OGC:1.3:CRS84"}},
         "metadata": {
             "sourceCrs": "EPSG:5186",
             "targetCrs": "EPSG:4326",
             "frequencyYears": 100,
+            "mapType": args.map_type,
             "districtCodes": sorted(DISTRICT_NAMES),
             "simplifyMeters": args.simplify_meters,
         },

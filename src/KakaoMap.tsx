@@ -39,7 +39,7 @@ interface BoundaryImageClip {
   paths: string[]
 }
 
-interface NationalFloodFeature {
+interface StaticFloodFeature {
   properties: {
     districtCode: string
     districtName: string
@@ -55,7 +55,7 @@ interface NationalFloodFeature {
   }
 }
 
-interface NationalFloodSvg {
+interface StaticFloodSvg {
   width: number
   height: number
   shapes: Array<{ key: string; path: string; color: string }>
@@ -125,7 +125,7 @@ const hazardLayerMeta: Record<HazardOverlayLayer, { title: string; category: str
     title: '도시침수',
     category: '예상 위험 범위',
     description: '배수시설 용량 초과·고장 등을 가정한 내수침수 예상도입니다.',
-    source: '홍수위험지도 · 100년 빈도',
+    source: '홍수위험지도 정보제공포털 SHP · 100년 빈도',
   },
 }
 
@@ -157,7 +157,8 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
   const searchCircleRef = useRef<any>(null)
   const [mapReady, setMapReady] = useState(false)
   const [boundaryFeatures, setBoundaryFeatures] = useState<BoundaryFeature[]>([])
-  const [nationalFloodFeatures, setNationalFloodFeatures] = useState<NationalFloodFeature[]>([])
+  const [nationalFloodFeatures, setNationalFloodFeatures] = useState<StaticFloodFeature[]>([])
+  const [urbanFloodFeatures, setUrbanFloodFeatures] = useState<StaticFloodFeature[]>([])
   const [mapError, setMapError] = useState('')
   const [measureMode, setMeasureMode] = useState(false)
   const [measurePoints, setMeasurePoints] = useState<Facility[]>([])
@@ -166,7 +167,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
   const [searchPoint, setSearchPoint] = useState<SearchLocation | null>(null)
   const [hazardOverlayImages, setHazardOverlayImages] = useState<Partial<Record<HazardOverlayLayer, string[]>>>({})
   const [boundaryImageClip, setBoundaryImageClip] = useState<BoundaryImageClip | null>(null)
-  const [nationalFloodSvg, setNationalFloodSvg] = useState<NationalFloodSvg | null>(null)
+  const [staticFloodSvg, setStaticFloodSvg] = useState<StaticFloodSvg | null>(null)
 
   useEffect(() => {
     fetch(`${import.meta.env.BASE_URL}data/goyang-boundary.json`)
@@ -181,8 +182,15 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         return response.json()
       })
-      .then((data: { features: NationalFloodFeature[] }) => setNationalFloodFeatures(data.features))
+      .then((data: { features: StaticFloodFeature[] }) => setNationalFloodFeatures(data.features))
       .catch(() => setNationalFloodFeatures([]))
+    fetch(`${import.meta.env.BASE_URL}data/goyang-urban-flood-100.geojson`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        return response.json()
+      })
+      .then((data: { features: StaticFloodFeature[] }) => setUrbanFloodFeatures(data.features))
+      .catch(() => setUrbanFloodFeatures([]))
   }, [])
 
   const facilitiesWithCoords = useMemo(
@@ -404,16 +412,21 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
   useEffect(() => {
     const kakao = window.kakao
     const map = mapRef.current
-    if (!mapReady || !kakao?.maps || !map || !layers.nationalRiverFlood || !nationalFloodFeatures.length) {
-      setNationalFloodSvg(null)
+    const features = layers.nationalRiverFlood
+      ? nationalFloodFeatures
+      : layers.urbanFlood
+        ? urbanFloodFeatures
+        : []
+    if (!mapReady || !kakao?.maps || !map || !features.length) {
+      setStaticFloodSvg(null)
       return
     }
-    const clear = () => setNationalFloodSvg(null)
+    const clear = () => setStaticFloodSvg(null)
     const refresh = () => {
       const element = containerRef.current
       if (!element) return
       const projection = map.getProjection()
-      const shapes = nationalFloodFeatures.map((feature) => {
+      const shapes = features.map((feature) => {
         const polygons = feature.geometry.type === 'MultiPolygon'
           ? feature.geometry.coordinates as number[][][][]
           : [feature.geometry.coordinates as number[][][]]
@@ -427,7 +440,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
           color: feature.properties.color,
         }
       })
-      setNationalFloodSvg({ width: element.clientWidth, height: element.clientHeight, shapes })
+      setStaticFloodSvg({ width: element.clientWidth, height: element.clientHeight, shapes })
     }
     kakao.maps.event.addListener(map, 'idle', refresh)
     kakao.maps.event.addListener(map, 'dragstart', clear)
@@ -437,9 +450,9 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
       kakao.maps.event.removeListener(map, 'idle', refresh)
       kakao.maps.event.removeListener(map, 'dragstart', clear)
       kakao.maps.event.removeListener(map, 'zoom_start', clear)
-      setNationalFloodSvg(null)
+      setStaticFloodSvg(null)
     }
-  }, [layers.nationalRiverFlood, nationalFloodFeatures, mapReady])
+  }, [layers.nationalRiverFlood, layers.urbanFlood, nationalFloodFeatures, urbanFloodFeatures, mapReady])
 
   useEffect(() => {
     const kakao = window.kakao
@@ -451,7 +464,6 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
     }
     const enabledLayers: HazardOverlayLayer[] = [
       ...(layers.floodTrace ? ['flood_trace' as const] : []),
-      ...(layers.urbanFlood ? ['urban_flood' as const] : []),
       ...(layers.localRiverFlood ? ['local_river_flood' as const] : []),
     ]
     if (!enabledLayers.length) {
@@ -588,14 +600,14 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
         </svg>
       )}
 
-      {nationalFloodSvg && (
+      {staticFloodSvg && (
         <svg
-          className="national-flood-overlay-frame"
-          viewBox={`0 0 ${nationalFloodSvg.width} ${nationalFloodSvg.height}`}
+          className="static-flood-overlay-frame"
+          viewBox={`0 0 ${staticFloodSvg.width} ${staticFloodSvg.height}`}
           preserveAspectRatio="none"
           aria-hidden="true"
         >
-          {nationalFloodSvg.shapes.map((shape) => (
+          {staticFloodSvg.shapes.map((shape) => (
             <path key={shape.key} d={shape.path} fill={shape.color} fillOpacity="0.68" fillRule="evenodd" stroke="#3c4c63" strokeOpacity="0.3" strokeWidth="0.6" />
           ))}
         </svg>
