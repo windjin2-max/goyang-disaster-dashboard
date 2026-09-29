@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Crosshair, KeyRound, LocateFixed, Minus, Plus, Printer, Ruler } from 'lucide-react'
-import type { DisasterArea, DisasterLayerVisibility, DisasterMapPoint, Facility, PopulationDistribution } from './types'
+import type { DisasterArea, DisasterLayerVisibility, DisasterMapPoint, Facility, FloodResultMapArea, PopulationDistribution } from './types'
 import { fetchHazardOverlay, type HazardOverlayLayer } from './lib/disasterRepository'
 import { colorForType, haversineKm } from './utils'
 
@@ -17,6 +17,7 @@ interface KakaoMapProps {
   disasterPoints?: DisasterMapPoint[]
   disasterAreas?: DisasterArea[]
   populationDistribution?: PopulationDistribution | null
+  riskDongAreas?: FloodResultMapArea[]
   layers?: DisasterLayerVisibility
   enableFloodWms?: boolean
 }
@@ -158,6 +159,22 @@ const floodDepthLegend = [
 ]
 
 const populationColors = ['#fff4cc', '#cfe8b4', '#82c9b8', '#4292c6', '#6a51a3']
+const emptyRiskDongAreas: FloodResultMapArea[] = []
+const riskAreaLegend = [
+  { label: '중첩 없음', color: '#e8eef4' },
+  { label: '0~5%', color: '#ffe3a3' },
+  { label: '5~15%', color: '#ffc078' },
+  { label: '15~30%', color: '#f18466' },
+  { label: '30% 초과', color: '#d84b52' },
+]
+
+function riskAreaColor(percent: number) {
+  if (percent <= 0) return riskAreaLegend[0].color
+  if (percent <= 5) return riskAreaLegend[1].color
+  if (percent <= 15) return riskAreaLegend[2].color
+  if (percent <= 30) return riskAreaLegend[3].color
+  return riskAreaLegend[4].color
+}
 
 function populationColor(value: number, breaks: number[]) {
   const index = breaks.findIndex((threshold) => value <= threshold)
@@ -176,7 +193,7 @@ function pointColor(kind: DisasterMapPoint['kind']) {
   return '#7b61d1'
 }
 
-export default function KakaoMap({ facilities, selected, onSelect, allTypes, compact = false, searchRequest, searchRadiusKm = 1, highlightedFacilityIds, onAddressResolved, disasterPoints = [], disasterAreas = [], populationDistribution = null, layers = defaultLayers, enableFloodWms = true }: KakaoMapProps) {
+export default function KakaoMap({ facilities, selected, onSelect, allTypes, compact = false, searchRequest, searchRadiusKm = 1, highlightedFacilityIds, onAddressResolved, disasterPoints = [], disasterAreas = [], populationDistribution = null, riskDongAreas = emptyRiskDongAreas, layers = defaultLayers, enableFloodWms = true }: KakaoMapProps) {
   const boundaryClipId = `goyang-boundary-${useId().replace(/:/g, '')}`
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
@@ -186,6 +203,8 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
   const disasterAreasRef = useRef<any[]>([])
   const populationAreasRef = useRef<any[]>([])
   const populationInfoWindowRef = useRef<any>(null)
+  const riskDongAreasRef = useRef<any[]>([])
+  const riskDongInfoWindowRef = useRef<any>(null)
   const boundaryRef = useRef<any[]>([])
   const searchMarkerRef = useRef<any>(null)
   const searchCircleRef = useRef<any>(null)
@@ -494,6 +513,70 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
       populationInfoWindowRef.current = null
     }
   }, [layers.population, populationDistribution, populationBreaks, mapReady])
+
+  useEffect(() => {
+    const kakao = window.kakao
+    const map = mapRef.current
+    riskDongAreasRef.current.forEach((polygon) => polygon.setMap(null))
+    riskDongAreasRef.current = []
+    riskDongInfoWindowRef.current?.close()
+    riskDongInfoWindowRef.current = null
+    if (!mapReady || !kakao?.maps || !map || !riskDongAreas.length) return
+
+    riskDongAreasRef.current = riskDongAreas.flatMap((area) => {
+      const polygons = area.geometry.type === 'MultiPolygon'
+        ? area.geometry.coordinates as number[][][][]
+        : [area.geometry.coordinates as number[][][]]
+      return polygons.map((rings) => {
+        const polygon = new kakao.maps.Polygon({
+          map,
+          path: rings.map((ring) => ring.map(([longitude, latitude]) => new kakao.maps.LatLng(latitude, longitude))),
+          strokeWeight: 1.3,
+          strokeColor: '#52677c',
+          strokeOpacity: .78,
+          fillColor: riskAreaColor(area.hazardAreaPercent),
+          fillOpacity: .57,
+        })
+        kakao.maps.event.addListener(polygon, 'mouseover', () => polygon.setOptions({ fillOpacity: .78, strokeWeight: 2 }))
+        kakao.maps.event.addListener(polygon, 'mouseout', () => polygon.setOptions({ fillOpacity: .57, strokeWeight: 1.3 }))
+        kakao.maps.event.addListener(polygon, 'click', (event: any) => {
+          riskDongInfoWindowRef.current?.close()
+          const content = document.createElement('div')
+          content.className = 'population-info-window'
+          const title = document.createElement('strong')
+          title.textContent = shortAdministrativeName(area.adminName)
+          const district = document.createElement('span')
+          district.textContent = area.districtName
+          const metrics = document.createElement('dl')
+          ;[
+            ['중첩 면적', `${area.hazardAreaSquareKm.toLocaleString('ko-KR')}㎢`],
+            ['행정동 면적 비율', `${area.hazardAreaPercent.toLocaleString('ko-KR')}%`],
+            ['추정 노출인구', `${area.estimatedExposedPopulation.toLocaleString('ko-KR')}명`],
+          ].forEach(([label, value]) => {
+            const row = document.createElement('div')
+            const term = document.createElement('dt')
+            const detail = document.createElement('dd')
+            term.textContent = label
+            detail.textContent = value
+            row.append(term, detail)
+            metrics.append(row)
+          })
+          content.append(title, district, metrics)
+          const infoWindow = new kakao.maps.InfoWindow({ content, removable: true, position: event.latLng })
+          infoWindow.open(map)
+          riskDongInfoWindowRef.current = infoWindow
+        })
+        return polygon
+      })
+    })
+
+    return () => {
+      riskDongAreasRef.current.forEach((polygon) => polygon.setMap(null))
+      riskDongAreasRef.current = []
+      riskDongInfoWindowRef.current?.close()
+      riskDongInfoWindowRef.current = null
+    }
+  }, [riskDongAreas, mapReady])
 
   useEffect(() => {
     const kakao = window.kakao
@@ -820,6 +903,15 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
             })}
           </div>
           <footer><span>출처: 행정안전부 주민등록 인구</span><span>데이터 날짜: {populationDistribution.statisticMonth.slice(0, 4)}년 {populationDistribution.statisticMonth.slice(4, 6)}월 말 기준</span><span>총 {populationDistribution.totalPopulation.toLocaleString('ko-KR')}명</span></footer>
+        </aside>
+      )}
+
+      {!compact && riskDongAreas.length > 0 && (
+        <aside className="hazard-map-legend" aria-label="행정동별 위험면적 비율 범례">
+          <div className="hazard-legend-heading"><div><span>행정동 단계구분도</span><strong>시나리오 중첩 면적 비율</strong></div><b className="forecast">100년 빈도</b></div>
+          <p>행정동 전체 면적 중 선택한 예상 침수 구역과 겹치는 비율입니다.</p>
+          <div className="depth-legend population-depth-legend">{riskAreaLegend.map((item) => <span key={item.label}><i style={{ backgroundColor: item.color }} aria-hidden="true" />{item.label}</span>)}</div>
+          <footer><span>출처: 홍수위험지도 정보제공포털 SHP</span><span>인구 기준월: {riskDongAreas[0].statisticMonth.slice(0, 4)}.{riskDongAreas[0].statisticMonth.slice(4, 6)}</span></footer>
         </aside>
       )}
 

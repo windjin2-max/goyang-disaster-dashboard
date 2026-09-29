@@ -44,7 +44,7 @@ export interface ChangeRecord {
   summary: string
 }
 
-export type ViewName = 'dashboard' | 'map' | 'analysis' | 'nearby' | 'facilities'
+export type ViewName = 'dashboard' | 'map' | 'analysis' | 'results' | 'nearby' | 'facilities'
 
 export type DisasterSourceId = 'weather' | 'hydrology' | 'kwater' | 'flood' | 'population'
 export type DisasterSourceState = 'live' | 'configured' | 'error'
@@ -125,6 +125,52 @@ export interface PopulationDistribution {
   totalPopulation: number
   totalHouseholds: number
   features: PopulationBoundaryFeature[]
+}
+
+export type FloodResultLayerCode = 'national_river_flood' | 'local_river_flood' | 'urban_flood'
+
+export interface FloodResultLayerSummary {
+  layerCode: FloodResultLayerCode
+  layerName: string
+  featureCount: number
+  analyzedFacilities: number
+  exposedFacilities: number
+  statisticMonth: string | null
+  hazardAreaSquareKm: number
+  estimatedExposedPopulation: number
+  exposedAdminDongs: number
+}
+
+export interface FloodOverlapSummary {
+  populationEstimationMethod: string
+  layers: FloodResultLayerSummary[]
+}
+
+export interface FacilityFloodExposure {
+  facilityId: string
+  layerCode: FloodResultLayerCode
+  maxDepthM: number | null
+  depthLabel: string | null
+  frequencyYears: number | null
+  calculatedAt: string
+}
+
+export interface AdminDongFloodExposure {
+  adminCode: string
+  layerCode: FloodResultLayerCode
+  statisticMonth: string
+  hazardAreaSquareKm: number
+  hazardAreaPercent: number
+  population: number
+  estimatedExposedPopulation: number
+  maxDepthM: number | null
+  calculatedAt: string
+}
+
+export interface FloodResultMapArea extends AdminDongFloodExposure {
+  adminName: string
+  districtName: string
+  geometry: PopulationBoundaryFeature['geometry']
 }
 
 export interface DisasterOverview {

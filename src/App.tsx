@@ -8,10 +8,11 @@ import {
 } from 'lucide-react'
 import KakaoMap from './KakaoMap'
 import FacilityModal from './FacilityModal'
-import type { ChangeRecord, DisasterLayerId, DisasterLayerVisibility, DisasterMapPoint, DisasterOverview, Facility, Filters, HistoricalAnalysis, HistoricalMetricFilter, PopulationDistribution, ViewName } from './types'
+import type { AdminDongFloodExposure, ChangeRecord, DisasterLayerId, DisasterLayerVisibility, DisasterMapPoint, DisasterOverview, Facility, FacilityFloodExposure, Filters, FloodOverlapSummary, FloodResultLayerCode, FloodResultMapArea, HistoricalAnalysis, HistoricalMetricFilter, PopulationDistribution, ViewName } from './types'
 import { fetchFacilities, fetchFacilityHistory, importFacilities, persistFacility } from './lib/facilityRepository'
 import { emptyDisasterOverview, fetchDisasterOverview, fetchPopulationDistribution, formatMetric } from './lib/disasterRepository'
 import { emptyHistoricalAnalysis, fetchHistoricalAnalysis, historicalMapAreas, historicalMapPoints } from './lib/historicalRepository'
+import { fetchAdminDongFloodExposure, fetchFacilityFloodExposure, fetchFloodOverlapSummary } from './lib/floodResultsRepository'
 import { CCTV_ALL_TYPE, colorForType, downloadText, filterFacilities, formatCoordinate, haversineKm, isCctvType, toCsv } from './utils'
 
 const emptyFilters: Filters = { query: '', type: '', status: '', district: '', agency: '' }
@@ -29,6 +30,12 @@ const defaultDisasterLayers: DisasterLayerVisibility = {
   localRiverFlood: false,
   urbanFlood: false,
   population: false,
+}
+const floodResultMapLayers: DisasterLayerVisibility = {
+  ...defaultDisasterLayers,
+  rainfall: false,
+  snowfall: false,
+  waterLevel: false,
 }
 
 const layerLabels: { id: DisasterLayerId; label: string }[] = [
@@ -189,6 +196,17 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   const [historicalAnalysis, setHistoricalAnalysis] = useState<HistoricalAnalysis>(() => emptyHistoricalAnalysis())
   const [historicalLoading, setHistoricalLoading] = useState(false)
   const [historicalError, setHistoricalError] = useState('')
+  const [resultLayer, setResultLayer] = useState<FloodResultLayerCode>('national_river_flood')
+  const [resultSummary, setResultSummary] = useState<FloodOverlapSummary | null>(null)
+  const [resultFacilities, setResultFacilities] = useState<FacilityFloodExposure[]>([])
+  const [resultDongs, setResultDongs] = useState<AdminDongFloodExposure[]>([])
+  const [resultLoading, setResultLoading] = useState(false)
+  const [resultError, setResultError] = useState('')
+  const [resultReloadKey, setResultReloadKey] = useState(0)
+  const [resultDistrict, setResultDistrict] = useState('')
+  const [resultFacilityType, setResultFacilityType] = useState('')
+  const [resultFacilityQuery, setResultFacilityQuery] = useState('')
+  const [selectedResultFacilityId, setSelectedResultFacilityId] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 12
 
@@ -249,6 +267,34 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   }, [analysisStart, analysisEnd])
 
   useEffect(() => { void loadHistorical() }, [loadHistorical])
+  useEffect(() => {
+    if (view !== 'results') return
+    let cancelled = false
+    setResultLoading(true)
+    setResultError('')
+    setResultSummary(null)
+    setResultFacilities([])
+    setResultDongs([])
+    void (async () => {
+      try {
+        const summary = await fetchFloodOverlapSummary()
+        const month = summary.layers.find((layer) => layer.layerCode === resultLayer)?.statisticMonth
+        const [exposures, dongs] = await Promise.all([
+          fetchFacilityFloodExposure(resultLayer),
+          month ? fetchAdminDongFloodExposure(resultLayer, month) : Promise.resolve([]),
+        ])
+        if (cancelled) return
+        setResultSummary(summary)
+        setResultFacilities(exposures)
+        setResultDongs(dongs)
+      } catch (error) {
+        if (!cancelled) setResultError(error instanceof Error ? error.message : '분석 결과를 불러오지 못했습니다.')
+      } finally {
+        if (!cancelled) setResultLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [view, resultLayer, resultReloadKey])
   useEffect(() => { if (toast) { const timer = window.setTimeout(() => setToast(''), 2800); return () => clearTimeout(timer) } }, [toast])
   useEffect(() => setPage(1), [facilityQuery, facilityType])
 
@@ -368,6 +414,34 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   }, [facilities, nearbyLocation, nearbyRadiusKm])
   const nearbyIds = useMemo(() => new Set(nearbyResults.map((item) => item.facility.id)), [nearbyResults])
   const nearbyRisk = calculateReferenceRisk(nearbyDisasterOverview ?? disasterOverview)
+  const resultLayerSummary = resultSummary?.layers.find((layer) => layer.layerCode === resultLayer)
+  const resultFacilityItems = useMemo(() => {
+    const byId = new globalThis.Map(facilities.map((facility) => [facility.id, facility]))
+    return resultFacilities.flatMap((exposure) => {
+      const facility = byId.get(exposure.facilityId)
+      return facility ? [{ facility, exposure }] : []
+    })
+  }, [facilities, resultFacilities])
+  const resultFacilityTypes = useMemo(() => [...new Set(resultFacilityItems.map(({ facility }) => facility.type))].sort((a, b) => a.localeCompare(b, 'ko')), [resultFacilityItems])
+  const filteredResultFacilities = useMemo(() => resultFacilityItems.filter(({ facility }) => {
+    const query = resultFacilityQuery.trim().toLocaleLowerCase('ko-KR')
+    return (!resultDistrict || facility.district === resultDistrict)
+      && (!resultFacilityType || facility.type === resultFacilityType)
+      && (!query || `${facility.name} ${facility.address} ${facility.type}`.toLocaleLowerCase('ko-KR').includes(query))
+  }), [resultFacilityItems, resultDistrict, resultFacilityType, resultFacilityQuery])
+  const resultBoundaryByCode = useMemo(() => new globalThis.Map((populationDistribution?.features ?? []).map((feature) => [feature.properties.adminCode, feature])), [populationDistribution])
+  const resultDongItems = useMemo(() => resultDongs.map((row) => {
+    const boundary = resultBoundaryByCode.get(row.adminCode)
+    return { ...row, adminName: boundary?.properties.adminName ?? row.adminCode,
+      districtName: boundary?.properties.districtName ?? '' }
+  }).filter((row) => !resultDistrict || row.districtName.includes(resultDistrict)), [resultDongs, resultBoundaryByCode, resultDistrict])
+  const resultMapAreas = useMemo<FloodResultMapArea[]>(() => resultDongItems.flatMap((row) => {
+    const boundary = resultBoundaryByCode.get(row.adminCode)
+    return boundary ? [{ ...row, geometry: boundary.geometry }] : []
+  }), [resultDongItems, resultBoundaryByCode])
+  const resultAreaSquareKm = resultDongItems.reduce((sum, row) => sum + row.hazardAreaSquareKm, 0)
+  const resultEstimatedPopulation = resultDongItems.reduce((sum, row) => sum + row.estimatedExposedPopulation, 0)
+  const resultSelectedFacility = filteredResultFacilities.find(({ facility }) => facility.id === selectedResultFacilityId) ?? null
 
   const notify = (message: string) => setToast(message)
   const toggleDisasterLayer = (layerId: DisasterLayerId) => {
@@ -551,6 +625,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
     { id: 'dashboard' as const, label: '통합 대시보드', icon: LayoutDashboard },
     { id: 'map' as const, label: '지도 상황판', icon: MapIcon },
     { id: 'analysis' as const, label: '재난 이력 분석', icon: CalendarRange },
+    { id: 'results' as const, label: '분석 결과', icon: Layers3 },
     { id: 'nearby' as const, label: '주변 시설물 검색', icon: LocateFixed },
     { id: 'facilities' as const, label: '시설물 관리', icon: ListChecks },
   ]
@@ -568,8 +643,8 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
       <main className="main-area">
         <header className="topbar">
           <button className="mobile-menu" onClick={() => setSidebarOpen((value) => !value)} aria-label="메뉴 열기">{sidebarOpen ? <X /> : <Menu />}</button>
-          <div className="page-heading"><h1>{navigation.find((item) => item.id === view)?.label}</h1><p>{view === 'analysis' ? `분석지역 경기도 고양시 · ${analysisStart}~${analysisEnd}` : `${dataInfo.sourceFile || '시설물 데이터를 불러오는 중입니다'} · 기준일 ${dataInfo.generatedAt || '-'}`}</p></div>
-          <div className="top-actions"><button className="button secondary" onClick={exportCsv}><Download size={17} />CSV 내보내기</button><button className="button primary" onClick={() => goToMap()}><MapPin size={17} />지도 열기</button>{onSignOut && <button className="button secondary signout-button" onClick={() => void onSignOut()}><LogOut size={17} />로그아웃</button>}</div>
+          <div className="page-heading"><h1>{navigation.find((item) => item.id === view)?.label}</h1><p>{view === 'analysis' ? `분석지역 경기도 고양시 · ${analysisStart}~${analysisEnd}` : view === 'results' ? '고양시 100년 빈도 예상 침수 시나리오 중첩 결과' : `${dataInfo.sourceFile || '시설물 데이터를 불러오는 중입니다'} · 기준일 ${dataInfo.generatedAt || '-'}`}</p></div>
+          <div className="top-actions">{view !== 'results' && <button className="button secondary" onClick={exportCsv}><Download size={17} />CSV 내보내기</button>}<button className="button primary" onClick={() => goToMap()}><MapPin size={17} />지도 열기</button>{onSignOut && <button className="button secondary signout-button" onClick={() => void onSignOut()}><LogOut size={17} />로그아웃</button>}</div>
         </header>
 
         <div className="content">
@@ -725,6 +800,53 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
                   const metric = historicalMetricLabels[station.metric] ?? { label: station.metric, unit: '' }
                   return <tr key={`${station.source}-${station.stationCode}-${station.metric}`}><td><strong>{metric.label}</strong><small>{metric.unit}</small></td><td>{station.stationName}<small>{historicalSourceLabels[station.source] ?? station.source}</small></td><td>{formatMetric(station.minValue, metric.unit, '-')}</td><td>{formatMetric(station.avgValue, metric.unit, '-')}</td><td>{formatMetric(station.maxValue, metric.unit, '-')}</td><td>{station.observationCount.toLocaleString('ko-KR')}건</td><td>{station.firstObservedAt ? new Date(station.firstObservedAt).toLocaleDateString('ko-KR') : '-'}<small>~ {station.lastObservedAt ? new Date(station.lastObservedAt).toLocaleDateString('ko-KR') : '-'}</small></td></tr>
                 })}</tbody></table></div> : <div className="empty-state"><CalendarRange size={28} /><h3>{!historicalAnalysis.stations.length ? '과거 관측자료 적재를 기다리고 있습니다.' : historicalFacilityId ? '선택한 조건의 관측자료가 없습니다.' : '시설물을 선택해 주세요.'}</h3><p>{!historicalAnalysis.stations.length ? '고양시 관측자료가 적재되면 시설물별로 조회할 수 있습니다.' : historicalFacilityId ? '분석 기간 또는 자료 유형을 변경해 확인해 주세요.' : '검색 후 시설물을 선택하면 해당 기간의 관측 통계를 보여줍니다.'}</p></div>}
+              </article>
+            </section>
+          )}
+
+          {view === 'results' && (
+            <section className="results-view" aria-label="홍수 시나리오 분석 결과">
+              <div className="analysis-scope-bar">
+                <div><span className="eyebrow">고양시 공간 중첩 분석</span><h2>시설물·행정동·인구 영향 확인</h2><p>예상 침수 시나리오와 겹치는 시설 및 행정동 범위를 조회합니다.</p></div>
+                <span className="scope-badge"><MapPin size={15} />100년 빈도 · 고양시 경계</span>
+              </div>
+
+              <div className="panel results-filter-bar">
+                <label className="field"><span>분석 지도</span><select value={resultLayer} onChange={(event) => { setResultLayer(event.target.value as FloodResultLayerCode); setResultFacilityType(''); setSelectedResultFacilityId('') }}><option value="national_river_flood">국가하천 범람</option><option value="local_river_flood">지방하천 범람</option><option value="urban_flood">도시침수</option></select></label>
+                <label className="field"><span>행정구역</span><select value={resultDistrict} onChange={(event) => setResultDistrict(event.target.value)}><option value="">고양시 전체</option><option value="덕양구">덕양구</option><option value="일산동구">일산동구</option><option value="일산서구">일산서구</option></select></label>
+                <label className="field"><span>시설 유형</span><select value={resultFacilityType} onChange={(event) => setResultFacilityType(event.target.value)}><option value="">전체 유형</option>{resultFacilityTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
+                <button className="button secondary" onClick={() => setResultReloadKey((value) => value + 1)} disabled={resultLoading}><RefreshCcw size={16} className={resultLoading ? 'is-spinning' : ''} />새로고침</button>
+              </div>
+
+              {resultError && <div className="nearby-error" role="alert">{resultError}</div>}
+              {!populationDistribution && !resultLoading && <div className="nearby-error" role="status">행정동 경계를 불러오지 못해 지도 색상과 행정동 명칭을 표시할 수 없습니다. 인구 분포 데이터 연결을 확인해 주세요.</div>}
+              {resultLoading && <p className="results-loading" role="status">분석 결과를 불러오는 중입니다.</p>}
+              <div className="results-kpi-grid">
+                <article><Building2 /><span>표시 중 중첩 시설</span><strong>{filteredResultFacilities.length.toLocaleString('ko-KR')}개</strong></article>
+                <article><MapPin /><span>중첩 행정동</span><strong>{resultDongItems.filter((row) => row.hazardAreaSquareKm > 0).length.toLocaleString('ko-KR')}개</strong></article>
+                <article><Layers3 /><span>시나리오 중첩 면적</span><strong>{resultAreaSquareKm.toLocaleString('ko-KR', { maximumFractionDigits: 3 })}㎢</strong></article>
+                <article><Users /><span>추정 노출인구</span><strong>{resultEstimatedPopulation.toLocaleString('ko-KR')}명</strong></article>
+              </div>
+              <p className="results-method-note">{resultLayerSummary?.layerName ?? '분석 지도'} · 시설물 {resultLayerSummary?.analyzedFacilities.toLocaleString('ko-KR') ?? '-'}개 분석 · 인구 기준 {resultLayerSummary?.statisticMonth ? `${resultLayerSummary.statisticMonth.slice(0, 4)}.${resultLayerSummary.statisticMonth.slice(4, 6)}` : '확인 중'} · 시설 유형 필터는 시설 목록에만 적용됩니다.</p>
+
+              <div className="results-main-grid">
+                <div className="results-map-wrap">
+                  <KakaoMap facilities={filteredResultFacilities.map(({ facility }) => facility)} selected={resultSelectedFacility?.facility ?? null} onSelect={(facility) => setSelectedResultFacilityId(facility.id)} allTypes={types} riskDongAreas={resultMapAreas} layers={floodResultMapLayers} enableFloodWms={false} />
+                </div>
+                <article className="panel results-facility-panel">
+                  <header className="panel-header"><div><span className="eyebrow">시설물 지점 중첩</span><h2>시나리오 중첩 시설</h2></div><span className="panel-count">{filteredResultFacilities.length.toLocaleString('ko-KR')}개</span></header>
+                  <label className="field"><span>시설명·주소 검색</span><input type="search" value={resultFacilityQuery} onChange={(event) => setResultFacilityQuery(event.target.value)} placeholder="시설명 또는 주소" /></label>
+                  {resultSelectedFacility && <div className="results-selected-facility"><strong>{resultSelectedFacility.facility.name}</strong><span>{resultSelectedFacility.facility.type} · {resultSelectedFacility.facility.address}</span><small>시나리오 최대 침수심 {resultSelectedFacility.exposure.maxDepthM == null ? '미제공' : `${resultSelectedFacility.exposure.maxDepthM}m`}</small></div>}
+                  <div className="results-facility-list">{filteredResultFacilities.length ? filteredResultFacilities.map(({ facility, exposure }) => <button key={facility.id} className={selectedResultFacilityId === facility.id ? 'is-selected' : ''} onClick={() => setSelectedResultFacilityId(facility.id)}><strong>{facility.name}</strong><span>{facility.type} · {facility.district}</span><small>{exposure.depthLabel || (exposure.maxDepthM == null ? '침수심 미제공' : `최대 ${exposure.maxDepthM}m`)}</small></button>) : <p className="results-empty">{resultLoading ? '조회 중입니다.' : '조건에 맞는 중첩 시설이 없습니다.'}</p>}</div>
+                </article>
+              </div>
+
+              <article className="panel results-dong-panel">
+                <header className="panel-header"><div><span className="eyebrow">행정동·인구 중첩 분석</span><h2>행정동별 시나리오 중첩 면적</h2></div><span className="panel-count">{resultDongItems.length.toLocaleString('ko-KR')}개 행정동</span></header>
+                <div className="table-wrap"><table><thead><tr><th>구</th><th>행정동</th><th>중첩 면적</th><th>행정동 면적 비율</th><th>주민등록 인구</th><th>추정 노출인구</th><th>최대 침수심</th></tr></thead><tbody>{resultDongItems.map((row) => <tr key={row.adminCode}><td>{row.districtName || '-'}</td><td><strong>{row.adminName}</strong><small>{row.adminCode}</small></td><td>{row.hazardAreaSquareKm.toLocaleString('ko-KR', { maximumFractionDigits: 3 })}㎢</td><td>{row.hazardAreaPercent.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}%</td><td>{row.population.toLocaleString('ko-KR')}명</td><td>{row.estimatedExposedPopulation.toLocaleString('ko-KR')}명</td><td>{row.maxDepthM == null ? '-' : `${row.maxDepthM}m`}</td></tr>)}</tbody></table></div>
+                {!resultDongItems.length && <p className="results-empty">{resultLoading ? '행정동 결과를 불러오는 중입니다.' : '선택한 조건의 행정동 결과가 없습니다.'}</p>}
+                <p className="results-caveat">중첩 시설은 피해 확정 시설이 아닙니다. 추정 노출인구는 행정동 내 인구가 고르게 분포한다고 가정한 면적 비례 추정치이며 실제 침수·피해 인구를 뜻하지 않습니다. 지도 3종의 결과는 서로 겹칠 수 있어 합산하지 않습니다.</p>
+                <p className="results-source">출처: 홍수위험지도 정보제공포털 100년 빈도 SHP · 행정안전부 주민등록 인구({resultLayerSummary?.statisticMonth ?? '기준월 미확인'})</p>
               </article>
             </section>
           )}
