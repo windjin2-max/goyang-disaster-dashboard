@@ -150,6 +150,8 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   const [history, setHistory] = useState<ChangeRecord[]>([])
   const [toast, setToast] = useState('')
   const [page, setPage] = useState(1)
+  const [facilityQuery, setFacilityQuery] = useState('')
+  const [facilityType, setFacilityType] = useState('')
   const [nearbyAddress, setNearbyAddress] = useState('')
   const [nearbyRequest, setNearbyRequest] = useState<{ address: string; id: number } | null>(null)
   const [nearbyLocation, setNearbyLocation] = useState<NearbyLocation | null>(null)
@@ -229,7 +231,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
 
   useEffect(() => { void loadHistorical() }, [loadHistorical])
   useEffect(() => { if (toast) { const timer = window.setTimeout(() => setToast(''), 2800); return () => clearTimeout(timer) } }, [toast])
-  useEffect(() => setPage(1), [filters])
+  useEffect(() => setPage(1), [facilityQuery, facilityType])
 
   const types = useMemo(() => [...new Set(facilities.map((item) => item.type))].sort(), [facilities])
   const districts = useMemo(() => [...new Set(facilities.map((item) => item.district))].sort((a, b) => {
@@ -239,6 +241,11 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   }), [facilities])
   const agencies = useMemo(() => [...new Set(facilities.map((item) => item.agency))].sort(), [facilities])
   const filtered = useMemo(() => filterFacilities(facilities, filters), [facilities, filters])
+  const managedFacilities = useMemo(() => filterFacilities(facilities, {
+    ...emptyFilters,
+    query: facilityQuery,
+    type: facilityType,
+  }), [facilities, facilityQuery, facilityType])
   const typeCounts = useMemo(() => countBy(facilities, 'type'), [facilities])
   const cctvCount = useMemo(() => facilities.filter((item) => isCctvType(item.type)).length, [facilities])
   const nonCctvTypeCounts = useMemo(() => typeCounts.filter(([type]) => !isCctvType(type)), [typeCounts])
@@ -246,8 +253,9 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   const groupedTypeCount = nonCctvTypeCounts.length + (cctvCount ? 1 : 0)
   const districtCounts = useMemo(() => countBy(facilities, 'district'), [facilities])
   const statusCounts = useMemo(() => countBy(facilities, 'status'), [facilities])
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize)
+  const pageCount = Math.max(1, Math.ceil(managedFacilities.length / pageSize))
+  const pageRows = managedFacilities.slice((page - 1) * pageSize, page * pageSize)
+  useEffect(() => setPage((current) => Math.min(current, pageCount)), [pageCount])
   const activeCount = facilities.filter((item) => item.status === '운영중').length
   const coordCount = facilities.filter((item) => item.longitude != null && item.latitude != null).length
   const inspectionCount = facilities.filter((item) => item.status === '점검필요').length
@@ -743,7 +751,10 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
               <div className="local-notice"><Database size={18} /><div><strong>Supabase 중앙 저장</strong><span>등록·수정·운영 상태 변경 내용이 관리자 전용 데이터베이스에 즉시 반영됩니다.</span></div></div>
               <article className="panel facility-panel">
                 <div className="facility-toolbar">
-                  <label className="search-field table-search"><Search size={17} /><input value={filters.query} onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))} placeholder="시설명·주소 검색" /></label>
+                  <div className="facility-search-controls">
+                    <label className="search-field table-search"><Search size={17} /><input value={facilityQuery} onChange={(event) => setFacilityQuery(event.target.value)} placeholder="시설명·주소 검색" aria-label="시설명 또는 주소 검색" /></label>
+                    <label className="field table-type-filter"><span>시설 유형</span><select value={facilityType} onChange={(event) => setFacilityType(event.target.value)}><option value="">전체 유형</option><option value={CCTV_ALL_TYPE}>{CCTV_ALL_TYPE}</option>{types.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+                  </div>
                   <div className="toolbar-actions">
                     <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={(event) => event.target.files?.[0] && importWorkbook(event.target.files[0])} />
                     <button className="button secondary" onClick={() => fileInputRef.current?.click()}><Upload size={16} />엑셀·CSV 등록</button>
@@ -751,8 +762,8 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
                     <button className="button primary" onClick={() => setEditing(null)}><Plus size={17} />시설 등록</button>
                   </div>
                 </div>
-                <div className="table-meta"><span>총 {filtered.length.toLocaleString('ko-KR')}개</span><button className="text-button" onClick={() => void reloadData()}><RefreshCcw size={14} />DB 새로고침</button></div>
-                <div className="table-wrap"><table><thead><tr><th>시설명</th><th>시설 유형</th><th>행정구역</th><th>관리부서</th><th>운영 상태</th><th>좌표</th><th>관리</th></tr></thead><tbody>{pageRows.map((facility) => <tr key={facility.id}><td><button className="facility-name" onClick={() => { setSelected(facility); setView('map') }}><strong>{facility.name}</strong><span>{facility.address}</span></button></td><td>{facility.type}</td><td>{facility.district}</td><td>{facility.agency}</td><td><span className={`status-badge ${facility.status}`}>{facility.status}</span></td><td>{facility.longitude != null && facility.latitude != null ? '등록 완료' : '좌표 없음'}</td><td><button className="icon-button" onClick={() => setEditing(facility)} aria-label={`${facility.name} 수정`}><Pencil size={16} /></button></td></tr>)}</tbody></table></div>
+                <div className="table-meta"><span>검색 결과 {managedFacilities.length.toLocaleString('ko-KR')}개 / 전체 {facilities.length.toLocaleString('ko-KR')}개</span><button className="text-button" onClick={() => void reloadData()}><RefreshCcw size={14} />DB 새로고침</button></div>
+                <div className="table-wrap"><table><thead><tr><th>시설명</th><th>시설 유형</th><th>행정구역</th><th>관리부서</th><th>운영 상태</th><th>좌표</th><th>관리</th></tr></thead><tbody>{pageRows.map((facility) => <tr key={facility.id}><td><button className="facility-name" onClick={() => { goToMap(); setSelected(facility) }}><strong>{facility.name}</strong><span>{facility.address}</span></button></td><td>{facility.type}</td><td>{facility.district}</td><td>{facility.agency}</td><td><span className={`status-badge ${facility.status}`}>{facility.status}</span></td><td>{facility.longitude != null && facility.latitude != null ? '등록 완료' : '좌표 없음'}</td><td><button className="icon-button" onClick={() => setEditing(facility)} aria-label={`${facility.name} 수정`}><Pencil size={16} /></button></td></tr>)}</tbody></table></div>
                 {!pageRows.length && <div className="empty-state"><Search size={28} /><h3>검색 결과가 없습니다.</h3><p>검색어 또는 필터를 변경해 주세요.</p></div>}
                 <div className="pagination"><button disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>이전</button><span>{page} / {pageCount}</span><button disabled={page >= pageCount} onClick={() => setPage((value) => value + 1)}>다음</button></div>
               </article>
