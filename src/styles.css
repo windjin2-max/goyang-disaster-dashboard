@@ -388,6 +388,7 @@ tbody tr:hover { background: #f9fbfd; }
 .analysis-workspace { display: grid; grid-template-columns: 220px minmax(420px,1fr) 270px; min-height: 620px; gap: 12px; }
 .analysis-filter-panel, .analysis-result-panel { min-width: 0; padding: 17px; border: 1px solid var(--line); border-radius: 13px; background: white; }
 .analysis-filter-panel .field { margin-top: 13px; }
+.analysis-layer-fieldset { grid-template-columns: 1fr; }
 .analysis-filter-panel input[type="date"] { width: 100%; min-height: 40px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--navy-900); font: inherit; }
 .period-presets { display: grid; grid-template-columns: repeat(3,1fr); gap: 5px; margin-top: 8px; }
 .period-presets button { min-height: 30px; padding: 4px; border: 1px solid var(--line); border-radius: 7px; background: #f5f8fc; color: #52667d; font-size: .68rem; cursor: pointer; }

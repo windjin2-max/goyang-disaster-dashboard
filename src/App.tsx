@@ -24,7 +24,7 @@ const defaultDisasterLayers: DisasterLayerVisibility = {
   rainfall: true,
   snowfall: true,
   waterLevel: true,
-  floodTrace: true,
+  floodTrace: false,
   nationalRiverFlood: false,
   localRiverFlood: false,
   urbanFlood: false,
@@ -172,6 +172,8 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   const [analysisEnd, setAnalysisEnd] = useState('2025-12-31')
   const [analysisMetric, setAnalysisMetric] = useState<HistoricalMetricFilter>('all')
   const [analysisFloodLayer, setAnalysisFloodLayer] = useState<HazardLayerId>('floodTrace')
+  const [analysisShowFacilities, setAnalysisShowFacilities] = useState(false)
+  const [analysisShowFloodLayer, setAnalysisShowFloodLayer] = useState(false)
   const [historicalAnalysis, setHistoricalAnalysis] = useState<HistoricalAnalysis>(() => emptyHistoricalAnalysis())
   const [historicalLoading, setHistoricalLoading] = useState(false)
   const [historicalError, setHistoricalError] = useState('')
@@ -310,15 +312,16 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   }, [historicalAnalysis.sources])
   const historicalLayers = useMemo<DisasterLayerVisibility>(() => ({
     ...defaultDisasterLayers,
+    facilities: analysisShowFacilities,
     population: false,
     rainfall: analysisMetric === 'all' || analysisMetric === 'rainfall',
     snowfall: analysisMetric === 'all' || analysisMetric === 'snowfall',
     waterLevel: analysisMetric === 'all' || analysisMetric === 'waterLevel',
-    floodTrace: (analysisMetric === 'all' || analysisMetric === 'flood') && analysisFloodLayer === 'floodTrace',
-    nationalRiverFlood: (analysisMetric === 'all' || analysisMetric === 'flood') && analysisFloodLayer === 'nationalRiverFlood',
-    localRiverFlood: (analysisMetric === 'all' || analysisMetric === 'flood') && analysisFloodLayer === 'localRiverFlood',
-    urbanFlood: (analysisMetric === 'all' || analysisMetric === 'flood') && analysisFloodLayer === 'urbanFlood',
-  }), [analysisMetric, analysisFloodLayer])
+    floodTrace: analysisShowFloodLayer && (analysisMetric === 'all' || analysisMetric === 'flood') && analysisFloodLayer === 'floodTrace',
+    nationalRiverFlood: analysisShowFloodLayer && (analysisMetric === 'all' || analysisMetric === 'flood') && analysisFloodLayer === 'nationalRiverFlood',
+    localRiverFlood: analysisShowFloodLayer && (analysisMetric === 'all' || analysisMetric === 'flood') && analysisFloodLayer === 'localRiverFlood',
+    urbanFlood: analysisShowFloodLayer && (analysisMetric === 'all' || analysisMetric === 'flood') && analysisFloodLayer === 'urbanFlood',
+  }), [analysisMetric, analysisFloodLayer, analysisShowFacilities, analysisShowFloodLayer])
   const districtGradient = useMemo(() => {
     if (!facilities.length || !districtCounts.length) return '#dce4ee'
     const colors = ['#256fd2', '#16a1b3', '#7b61d1', '#e38b2c', '#66768c']
@@ -357,6 +360,12 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
     setFilters(emptyFilters)
     setSelected(null)
     setView('nearby')
+  }
+  const goToAnalysis = () => {
+    setAnalysisMetric('all')
+    setAnalysisShowFacilities(false)
+    setAnalysisShowFloodLayer(false)
+    setView('analysis')
   }
   const searchNearby = (event: FormEvent) => {
     event.preventDefault()
@@ -525,7 +534,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
       <aside className={`sidebar ${sidebarOpen ? 'is-open' : ''}`}>
         <button className="brand" onClick={() => { setView('dashboard'); setSidebarOpen(false) }} aria-label="통합 대시보드로 이동"><div className="brand-mark"><Siren size={21} /></div><div><strong>재난 예·경보시설물 통합관리</strong><span>고양시 상황판</span></div></button>
         <nav className="main-nav" aria-label="주요 화면">
-          {navigation.map(({ id, label, icon: Icon }) => <button key={id} className={view === id ? 'is-active' : ''} onClick={() => { if (id === 'map') goToMap(); else if (id === 'nearby') goToNearby(); else setView(id); setSidebarOpen(false) }}><Icon size={19} /><span>{label}</span></button>)}
+          {navigation.map(({ id, label, icon: Icon }) => <button key={id} className={view === id ? 'is-active' : ''} onClick={() => { if (id === 'map') goToMap(); else if (id === 'nearby') goToNearby(); else if (id === 'analysis') goToAnalysis(); else setView(id); setSidebarOpen(false) }}><Icon size={19} /><span>{label}</span></button>)}
         </nav>
         <div className="sidebar-status"><Database size={17} /><div><strong>Supabase 연결</strong><span>시설물과 변경 이력을 중앙 DB에 저장합니다.</span></div></div>
       </aside>
@@ -553,7 +562,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
                 </div>
                 <div className="source-status-row" aria-label="외부 API 연계 상태">
                   {historicalAnalysis.sources.length ? historicalAnalysis.sources.map((source) => <span key={source.source} className={`source-chip ${source.status === 'complete' ? 'live' : source.status === 'failed' ? 'error' : 'configured'}`} title={source.message}><i />{historicalSourceLabels[source.source] ?? source.source}</span>) : <span className="source-chip configured"><i />과거자료 초기 적재 대기</span>}
-                  <button className="text-button command-refresh" onClick={() => setView('analysis')}><CalendarRange size={14} />분석 화면 열기</button>
+                  <button className="text-button command-refresh" onClick={goToAnalysis}><CalendarRange size={14} />분석 화면 열기</button>
                 </div>
                 {historicalError && <p className="command-error">{historicalError}</p>}
               </article>
@@ -568,7 +577,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
               <div className="situation-main-grid">
                 <article className="panel dashboard-map-panel">
                   <header className="panel-header"><div><span className="eyebrow">고양시 전역</span><h2>시설 분포 지도</h2></div><div className="map-panel-actions"><span>지도 표시 {coordCount.toLocaleString('ko-KR')}개</span><button className="text-button" onClick={() => goToMap()}>상황판 열기 <ChevronRight size={15} /></button></div></header>
-                  <KakaoMap facilities={facilities} selected={null} onSelect={(facility) => { setSelected(facility); goToMap() }} allTypes={types} disasterPoints={disasterPoints} disasterAreas={disasterOverview.areas} populationDistribution={populationDistribution} layers={disasterLayers} compact />
+                  <KakaoMap facilities={facilities} selected={null} onSelect={(facility) => { setSelected(facility); goToMap() }} allTypes={types} disasterPoints={disasterPoints} disasterAreas={disasterOverview.areas} populationDistribution={populationDistribution} layers={{ ...disasterLayers, floodTrace: false }} compact />
                 </article>
 
                 <div className="dashboard-side-column">
@@ -645,18 +654,24 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
                   </div>
                   <label className="field"><span>자료 유형</span><select value={analysisMetric} onChange={(event) => setAnalysisMetric(event.target.value as HistoricalMetricFilter)}><option value="all">전체 자료</option><option value="rainfall">강수량</option><option value="snowfall">적설량</option><option value="waterLevel">하천수위</option><option value="flood">침수·홍수</option></select></label>
                   <label className="field"><span>침수·홍수 지도</span><select value={analysisFloodLayer} onChange={(event) => setAnalysisFloodLayer(event.target.value as HazardLayerId)} disabled={analysisMetric !== 'all' && analysisMetric !== 'flood'}><option value="floodTrace">침수흔적도 · 실제 이력</option><option value="nationalRiverFlood">국가하천 범람 · 예상</option><option value="localRiverFlood">지방하천 범람 · 예상</option><option value="urbanFlood">도시침수 · 예상</option></select></label>
+                  <fieldset className="layer-fieldset analysis-layer-fieldset">
+                    <legend><Layers3 size={15} />지도 표시 항목</legend>
+                    <label><input type="checkbox" checked={analysisShowFacilities} onChange={(event) => setAnalysisShowFacilities(event.target.checked)} /><span>시설물 현황</span></label>
+                    <label><input type="checkbox" checked={analysisShowFloodLayer} onChange={(event) => setAnalysisShowFloodLayer(event.target.checked)} disabled={analysisMetric !== 'all' && analysisMetric !== 'flood'} /><span>침수·홍수 지도</span></label>
+                    <small className="layer-fieldset-note">처음에는 관측자료만 표시합니다. 시설물과 침수·홍수 지도는 선택 시 추가됩니다.</small>
+                  </fieldset>
                   <div className="analysis-rule"><strong>지역·시나리오 기준</strong><span>고양시 경계 내부 자료만 사용하며 홍수위험지도는 100년 빈도를 표시합니다.</span></div>
                   <button className="button primary full" onClick={() => void loadHistorical()} disabled={historicalLoading}><RefreshCcw size={16} className={historicalLoading ? 'is-spinning' : ''} />{historicalLoading ? '조회 중' : '분석자료 조회'}</button>
                 </aside>
 
-                <KakaoMap facilities={goyangFacilities} selected={selected} onSelect={setSelected} allTypes={types} disasterPoints={historicalPoints} disasterAreas={historicalAreas} layers={historicalLayers} />
+                <KakaoMap facilities={goyangFacilities} selected={analysisShowFacilities ? selected : null} onSelect={setSelected} allTypes={types} disasterPoints={historicalPoints} disasterAreas={historicalAreas} layers={historicalLayers} />
 
                 <aside className="analysis-result-panel">
                   <header><span className="eyebrow">분석 범위</span><h2>{analysisStart}~{analysisEnd}</h2><p>고양시 내부 관측·공간자료</p></header>
                   <dl className="analysis-summary-list">
                     <div><dt>관측소</dt><dd>{historicalAnalysis.summary.stationCount.toLocaleString('ko-KR')}개소</dd></div>
                     <div><dt>관측자료</dt><dd>{historicalAnalysis.summary.observationCount.toLocaleString('ko-KR')}건</dd></div>
-                    <div><dt>분석 완료 시설</dt><dd>{historicalAnalysis.summary.analysedFacilityCount.toLocaleString('ko-KR')}개</dd></div>
+                    {analysisShowFacilities && <div><dt>분석 완료 시설</dt><dd>{historicalAnalysis.summary.analysedFacilityCount.toLocaleString('ko-KR')}개</dd></div>}
                     <div><dt>데이터 출처</dt><dd>{historicalSourceNames || '적재 대기'}</dd></div>
                     <div><dt>데이터 기간</dt><dd>{historicalDataRange}</dd></div>
                     <div><dt>조회 생성일</dt><dd>{historicalAnalysis.generatedAt ? new Date(historicalAnalysis.generatedAt).toLocaleDateString('ko-KR') : '적재 대기'}</dd></div>
