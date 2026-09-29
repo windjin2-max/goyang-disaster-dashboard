@@ -46,6 +46,7 @@ const layerLabels: { id: DisasterLayerId; label: string }[] = [
 const historicalSourceLabels: Record<string, string> = {
   kma_asos: '기상청 ASOS',
   kma_aws: '기상청 AWS',
+  facility_aws: '고양시 AWS 시설',
   kma_snow: '기상청 적설',
   hrfco: '한강홍수통제소',
   kwater: 'K-water',
