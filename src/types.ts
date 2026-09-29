@@ -146,9 +146,12 @@ export interface HistoricalStationMetric {
   source: string
   stationCode: string
   stationName: string
+  facilityId: string | null
   latitude: number
   longitude: number
   metric: string
+  minValue: number | null
+  avgValue: number | null
   maxValue: number | null
   firstObservedAt?: string
   lastObservedAt?: string

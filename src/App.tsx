@@ -58,6 +58,16 @@ const historicalSourceLabels: Record<string, string> = {
   floodmap: '홍수위험지도',
 }
 
+const historicalMetricLabels: Record<string, { label: string; unit: string }> = {
+  rainfall_1h: { label: '시간 강수량', unit: 'mm' },
+  rainfall_3h: { label: '3시간 강수량', unit: 'mm' },
+  rainfall_daily: { label: '일 강수량', unit: 'mm' },
+  snow_depth: { label: '적설량', unit: 'cm' },
+  new_snow: { label: '신적설량', unit: 'cm' },
+  water_level: { label: '수위', unit: 'm' },
+  flow_rate: { label: '유량', unit: '㎥/s' },
+}
+
 interface NearbyLocation {
   address: string
   latitude: number
@@ -174,6 +184,8 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   const [analysisFloodLayer, setAnalysisFloodLayer] = useState<HazardLayerId>('floodTrace')
   const [analysisShowFacilities, setAnalysisShowFacilities] = useState(false)
   const [analysisShowFloodLayer, setAnalysisShowFloodLayer] = useState(false)
+  const [historicalFacilityQuery, setHistoricalFacilityQuery] = useState('')
+  const [historicalFacilityId, setHistoricalFacilityId] = useState('')
   const [historicalAnalysis, setHistoricalAnalysis] = useState<HistoricalAnalysis>(() => emptyHistoricalAnalysis())
   const [historicalLoading, setHistoricalLoading] = useState(false)
   const [historicalError, setHistoricalError] = useState('')
@@ -280,6 +292,20 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   const goyangFacilities = useMemo(() => facilities.filter((facility) => GOYANG_DISTRICTS.has(facility.district)), [facilities])
   const historicalPoints = useMemo(() => historicalMapPoints(historicalAnalysis, analysisMetric), [historicalAnalysis, analysisMetric])
   const historicalAreas = useMemo(() => historicalMapAreas(historicalAnalysis, analysisMetric), [historicalAnalysis, analysisMetric])
+  const observedFacilityIds = useMemo(() => new Set(historicalAnalysis.stations.map((station) => station.facilityId).filter((id): id is string => Boolean(id))), [historicalAnalysis.stations])
+  const observedFacilities = useMemo(() => facilities.filter((facility) => observedFacilityIds.has(facility.id)).sort((a, b) => a.name.localeCompare(b.name, 'ko')), [facilities, observedFacilityIds])
+  const matchingObservedFacilities = useMemo(() => observedFacilities.filter((facility) => {
+    const query = historicalFacilityQuery.trim().toLocaleLowerCase('ko-KR')
+    return !query || facility.id === historicalFacilityId || `${facility.name} ${facility.type} ${facility.address}`.toLocaleLowerCase('ko-KR').includes(query)
+  }), [observedFacilities, historicalFacilityQuery, historicalFacilityId])
+  const historicalFacility = useMemo(() => facilities.find((facility) => facility.id === historicalFacilityId) ?? null, [facilities, historicalFacilityId])
+  const historicalFacilityMetrics = useMemo(() => historicalAnalysis.stations.filter((station) => {
+    if (station.facilityId !== historicalFacilityId) return false
+    if (analysisMetric === 'all') return true
+    if (analysisMetric === 'rainfall') return station.metric.startsWith('rainfall')
+    if (analysisMetric === 'snowfall') return station.metric.includes('snow')
+    return analysisMetric === 'waterLevel' && (station.metric === 'water_level' || station.metric === 'flow_rate')
+  }), [historicalAnalysis.stations, historicalFacilityId, analysisMetric])
   const historicalSourceNames = useMemo(() => (
     historicalAnalysis.sources.map((source) => historicalSourceLabels[source.source] ?? source.source).join(' · ')
   ), [historicalAnalysis.sources])
@@ -689,8 +715,16 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
               </div>
 
               <article className="panel analysis-table-panel">
-                <header className="panel-header"><div><span className="eyebrow">관측소별 기간 통계</span><h2>고양시 관측자료</h2></div><span className="panel-count">{historicalAnalysis.stations.length.toLocaleString('ko-KR')}개 지표</span></header>
-                {historicalAnalysis.stations.length ? <div className="table-wrap"><table><thead><tr><th>관측소</th><th>자료원</th><th>항목</th><th>기간 최댓값</th><th>자료 수</th><th>최종 관측</th></tr></thead><tbody>{historicalAnalysis.stations.map((station) => <tr key={`${station.source}-${station.stationCode}-${station.metric}`}><td><strong>{station.stationName}</strong><small>{station.stationCode}</small></td><td>{historicalSourceLabels[station.source] ?? station.source}</td><td>{station.metric}</td><td>{station.maxValue == null ? '-' : station.maxValue.toLocaleString('ko-KR')}</td><td>{station.observationCount.toLocaleString('ko-KR')}</td><td>{station.lastObservedAt ? new Date(station.lastObservedAt).toLocaleString('ko-KR') : '-'}</td></tr>)}</tbody></table></div> : <div className="empty-state"><CalendarRange size={28} /><h3>과거 관측자료 적재를 기다리고 있습니다.</h3><p>승인된 API의 고양시 자료만 수집되며 관외 데이터는 저장하지 않습니다.</p></div>}
+                <header className="panel-header"><div><span className="eyebrow">시설물별 기간 통계</span><h2>시설물 관측자료 조회</h2></div><span className="panel-count">관측자료 연결 시설 {observedFacilities.length.toLocaleString('ko-KR')}개</span></header>
+                <div className="analysis-facility-search">
+                  <label className="field"><span>시설명·유형·주소 검색</span><input type="search" value={historicalFacilityQuery} onChange={(event) => setHistoricalFacilityQuery(event.target.value)} placeholder="조회할 시설물을 검색하세요" /></label>
+                  <label className="field"><span>시설물 선택</span><select value={historicalFacilityId} onChange={(event) => setHistoricalFacilityId(event.target.value)}><option value="">시설물을 선택하세요</option>{matchingObservedFacilities.map((facility) => <option key={facility.id} value={facility.id}>{facility.name} · {facility.type} · {facility.district}</option>)}</select></label>
+                </div>
+                {historicalFacility && <div className="analysis-facility-context"><strong>{historicalFacility.name}</strong><span>{historicalFacility.type} · {historicalFacility.address}</span><small>{analysisStart} ~ {analysisEnd} · {historicalFacilityMetrics.reduce((sum, station) => sum + station.observationCount, 0).toLocaleString('ko-KR')}건</small></div>}
+                {historicalFacilityMetrics.length ? <div className="table-wrap"><table><thead><tr><th>관측 항목</th><th>관측소·자료원</th><th>최솟값</th><th>평균값</th><th>최댓값</th><th>자료 수</th><th>관측 기간</th></tr></thead><tbody>{historicalFacilityMetrics.map((station) => {
+                  const metric = historicalMetricLabels[station.metric] ?? { label: station.metric, unit: '' }
+                  return <tr key={`${station.source}-${station.stationCode}-${station.metric}`}><td><strong>{metric.label}</strong><small>{metric.unit}</small></td><td>{station.stationName}<small>{historicalSourceLabels[station.source] ?? station.source}</small></td><td>{formatMetric(station.minValue, metric.unit, '-')}</td><td>{formatMetric(station.avgValue, metric.unit, '-')}</td><td>{formatMetric(station.maxValue, metric.unit, '-')}</td><td>{station.observationCount.toLocaleString('ko-KR')}건</td><td>{station.firstObservedAt ? new Date(station.firstObservedAt).toLocaleDateString('ko-KR') : '-'}<small>~ {station.lastObservedAt ? new Date(station.lastObservedAt).toLocaleDateString('ko-KR') : '-'}</small></td></tr>
+                })}</tbody></table></div> : <div className="empty-state"><CalendarRange size={28} /><h3>{!historicalAnalysis.stations.length ? '과거 관측자료 적재를 기다리고 있습니다.' : historicalFacilityId ? '선택한 조건의 관측자료가 없습니다.' : '시설물을 선택해 주세요.'}</h3><p>{!historicalAnalysis.stations.length ? '고양시 관측자료가 적재되면 시설물별로 조회할 수 있습니다.' : historicalFacilityId ? '분석 기간 또는 자료 유형을 변경해 확인해 주세요.' : '검색 후 시설물을 선택하면 해당 기간의 관측 통계를 보여줍니다.'}</p></div>}
               </article>
             </section>
           )}
