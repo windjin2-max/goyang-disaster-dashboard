@@ -212,6 +212,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   const [resultFacilityType, setResultFacilityType] = useState('')
   const [resultFacilityQuery, setResultFacilityQuery] = useState('')
   const [selectedResultFacilityId, setSelectedResultFacilityId] = useState('')
+  const [resultMapResetKey, setResultMapResetKey] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 12
 
@@ -474,6 +475,14 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
     setAnalysisShowFloodLayer(false)
     setView('analysis')
   }
+  const goToResults = () => {
+    setResultDistrict('')
+    setResultFacilityType('')
+    setResultFacilityQuery('')
+    setSelectedResultFacilityId('')
+    setResultMapResetKey((current) => current + 1)
+    setView('results')
+  }
   const searchNearby = (event: FormEvent) => {
     event.preventDefault()
     const address = nearbyAddress.trim()
@@ -642,7 +651,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
       <aside className={`sidebar ${sidebarOpen ? 'is-open' : ''}`}>
         <button className="brand" onClick={() => { setView('dashboard'); setSidebarOpen(false) }} aria-label="통합 대시보드로 이동"><div className="brand-mark"><Siren size={21} /></div><div><strong>재난 예·경보시설물 통합관리</strong><span>고양시 상황판</span></div></button>
         <nav className="main-nav" aria-label="주요 화면">
-          {navigation.map(({ id, label, icon: Icon }) => <button key={id} className={view === id ? 'is-active' : ''} onClick={() => { if (id === 'map') goToMap(); else if (id === 'nearby') goToNearby(); else if (id === 'analysis') goToAnalysis(); else setView(id); setSidebarOpen(false) }}><Icon size={19} /><span>{label}</span></button>)}
+          {navigation.map(({ id, label, icon: Icon }) => <button key={id} className={view === id ? 'is-active' : ''} onClick={() => { if (id === 'map') goToMap(); else if (id === 'nearby') goToNearby(); else if (id === 'analysis') goToAnalysis(); else if (id === 'results') goToResults(); else setView(id); setSidebarOpen(false) }}><Icon size={19} /><span>{label}</span></button>)}
         </nav>
         <div className="sidebar-status"><Database size={17} /><div><strong>Supabase 연결</strong><span>시설물과 변경 이력을 중앙 DB에 저장합니다.</span></div></div>
       </aside>
@@ -849,7 +858,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
 
               <div className="results-main-grid">
                 <div className="results-map-wrap">
-                  <KakaoMap facilities={filteredResultFacilities.map(({ facility }) => facility)} selected={resultSelectedFacility?.facility ?? null} onSelect={(facility) => setSelectedResultFacilityId(facility.id)} allTypes={types} riskDongAreas={resultMapAreas} layers={floodResultMapLayers} enableFloodWms={false} />
+                  <KakaoMap key={resultMapResetKey} facilities={filteredResultFacilities.map(({ facility }) => facility)} selected={resultSelectedFacility?.facility ?? null} onSelect={(facility) => setSelectedResultFacilityId(facility.id)} allTypes={types} riskDongAreas={resultMapAreas} layers={floodResultMapLayers} enableFloodWms={false} />
                 </div>
                 <article className="panel results-facility-panel">
                   <header className="panel-header"><div><span className="eyebrow">시설물 지점 중첩</span><h2>예상 구역 안 시설</h2></div><span className="panel-count">{filteredResultFacilities.length.toLocaleString('ko-KR')}개</span></header>
