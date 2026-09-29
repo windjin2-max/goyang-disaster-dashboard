@@ -74,6 +74,11 @@ const historicalMetricLabels: Record<string, { label: string; unit: string }> = 
   water_level: { label: '수위', unit: 'm' },
   flow_rate: { label: '유량', unit: '㎥/s' },
 }
+const floodResultSourceUrls: Record<FloodResultLayerCode, string> = {
+  national_river_flood: 'https://www.floodmap.go.kr/nation',
+  local_river_flood: 'https://www.floodmap.go.kr/region',
+  urban_flood: 'https://www.floodmap.go.kr/fldara',
+}
 
 interface NearbyLocation {
   address: string
@@ -441,6 +446,8 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   }), [resultDongItems, resultBoundaryByCode])
   const resultAreaSquareKm = resultDongItems.reduce((sum, row) => sum + row.hazardAreaSquareKm, 0)
   const resultEstimatedPopulation = resultDongItems.reduce((sum, row) => sum + row.estimatedExposedPopulation, 0)
+  const resultCalculationDates = [...resultFacilities.map((row) => row.calculatedAt), ...resultDongs.map((row) => row.calculatedAt)].filter(Boolean).sort()
+  const resultCalculatedAt = resultCalculationDates[resultCalculationDates.length - 1]
   const resultSelectedFacility = filteredResultFacilities.find(({ facility }) => facility.id === selectedResultFacilityId) ?? null
 
   const notify = (message: string) => setToast(message)
@@ -807,9 +814,20 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
           {view === 'results' && (
             <section className="results-view" aria-label="홍수 시나리오 분석 결과">
               <div className="analysis-scope-bar">
-                <div><span className="eyebrow">고양시 공간 중첩 분석</span><h2>시설물·행정동·인구 영향 확인</h2><p>예상 침수 시나리오와 겹치는 시설 및 행정동 범위를 조회합니다.</p></div>
+                <div><span className="eyebrow">고양시 공간 중첩 분석</span><h2>예상 침수범위 중첩 결과</h2><p>시설물 위치와 행정동 경계를 예상 침수지도에 겹쳐 확인한 결과입니다.</p></div>
                 <span className="scope-badge"><MapPin size={15} />100년 빈도 · 고양시 경계</span>
               </div>
+
+              <article className="panel results-guide" aria-labelledby="results-guide-title">
+                <div className="results-guide-heading"><div><span className="eyebrow">결과 읽는 법</span><h2 id="results-guide-title">현재 침수 상황이나 피해 현황이 아닙니다</h2><p>선택한 100년 빈도 예상 침수지도와 고양시 시설·행정동 자료를 겹쳐 본 참고 결과입니다. ‘100년 빈도’는 100년 뒤에 침수된다는 뜻이 아닙니다.</p></div><TriangleAlert size={25} aria-hidden="true" /></div>
+                <div className="results-guide-grid">
+                  <div><strong>예상 구역 안 시설</strong><span>시설물의 등록 좌표가 예상 침수범위 안에 있는 수입니다. 실제 침수·피해 시설 수가 아닙니다.</span></div>
+                  <div><strong>행정동·면적 비율</strong><span>예상 침수범위와 겹치는 행정동·면적입니다. 면적 비율은 겹친 면적을 행정동 전체 면적으로 나눈 값입니다.</span></div>
+                  <div><strong>면적 비례 추정 인구</strong><span>행정동 인구가 고르게 분포한다고 가정해 계산한 값입니다. 실제 거주 위치나 피해 인원을 뜻하지 않습니다.</span></div>
+                  <div><strong>최대 침수심</strong><span>선택한 시나리오 지도의 예상 수심 중 가장 큰 값입니다. 관측 수위나 실제 침수 깊이가 아닙니다.</span></div>
+                </div>
+                <p>국가하천·지방하천·도시침수는 서로 다른 시나리오이며 범위가 겹칠 수 있으므로 수치들을 단순 합산하지 마세요. 새 시설 등록·좌표 수정 후에는 분석 결과를 재계산해야 반영됩니다.</p>
+              </article>
 
               <div className="panel results-filter-bar">
                 <label className="field"><span>분석 지도</span><select value={resultLayer} onChange={(event) => { setResultLayer(event.target.value as FloodResultLayerCode); setResultFacilityType(''); setSelectedResultFacilityId('') }}><option value="national_river_flood">국가하천 범람</option><option value="local_river_flood">지방하천 범람</option><option value="urban_flood">도시침수</option></select></label>
@@ -822,19 +840,19 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
               {!populationDistribution && !resultLoading && <div className="nearby-error" role="status">행정동 경계를 불러오지 못해 지도 색상과 행정동 명칭을 표시할 수 없습니다. 인구 분포 데이터 연결을 확인해 주세요.</div>}
               {resultLoading && <p className="results-loading" role="status">분석 결과를 불러오는 중입니다.</p>}
               <div className="results-kpi-grid">
-                <article><Building2 /><span>표시 중 중첩 시설</span><strong>{filteredResultFacilities.length.toLocaleString('ko-KR')}개</strong></article>
-                <article><MapPin /><span>중첩 행정동</span><strong>{resultDongItems.filter((row) => row.hazardAreaSquareKm > 0).length.toLocaleString('ko-KR')}개</strong></article>
-                <article><Layers3 /><span>시나리오 중첩 면적</span><strong>{resultAreaSquareKm.toLocaleString('ko-KR', { maximumFractionDigits: 3 })}㎢</strong></article>
-                <article><Users /><span>추정 노출인구</span><strong>{resultEstimatedPopulation.toLocaleString('ko-KR')}명</strong></article>
+                <article><Building2 /><span>예상 구역 안 시설</span><strong>{filteredResultFacilities.length.toLocaleString('ko-KR')}개</strong></article>
+                <article><MapPin /><span>예상 구역 닿은 행정동</span><strong>{resultDongItems.filter((row) => row.hazardAreaSquareKm > 0).length.toLocaleString('ko-KR')}개</strong></article>
+                <article><Layers3 /><span>예상 구역 겹친 면적</span><strong>{resultAreaSquareKm.toLocaleString('ko-KR', { maximumFractionDigits: 3 })}㎢</strong></article>
+                <article><Users /><span>면적 비례 추정 인구</span><strong>{resultEstimatedPopulation.toLocaleString('ko-KR')}명</strong></article>
               </div>
-              <p className="results-method-note">{resultLayerSummary?.layerName ?? '분석 지도'} · 시설물 {resultLayerSummary?.analyzedFacilities.toLocaleString('ko-KR') ?? '-'}개 분석 · 인구 기준 {resultLayerSummary?.statisticMonth ? `${resultLayerSummary.statisticMonth.slice(0, 4)}.${resultLayerSummary.statisticMonth.slice(4, 6)}` : '확인 중'} · 시설 유형 필터는 시설 목록에만 적용됩니다.</p>
+              <p className="results-method-note">{resultLayerSummary?.layerName ?? '분석 지도'} · 시설물 {resultLayerSummary?.analyzedFacilities.toLocaleString('ko-KR') ?? '-'}개 분석 · 인구 기준 {resultLayerSummary?.statisticMonth ? `${resultLayerSummary.statisticMonth.slice(0, 4)}.${resultLayerSummary.statisticMonth.slice(4, 6)}` : '확인 중'} · 마지막 중첩 계산 {resultCalculatedAt ? new Date(resultCalculatedAt).toLocaleDateString('ko-KR') : '확인 중'} · 시설 유형 필터는 시설 목록에만 적용됩니다.</p>
 
               <div className="results-main-grid">
                 <div className="results-map-wrap">
                   <KakaoMap facilities={filteredResultFacilities.map(({ facility }) => facility)} selected={resultSelectedFacility?.facility ?? null} onSelect={(facility) => setSelectedResultFacilityId(facility.id)} allTypes={types} riskDongAreas={resultMapAreas} layers={floodResultMapLayers} enableFloodWms={false} />
                 </div>
                 <article className="panel results-facility-panel">
-                  <header className="panel-header"><div><span className="eyebrow">시설물 지점 중첩</span><h2>시나리오 중첩 시설</h2></div><span className="panel-count">{filteredResultFacilities.length.toLocaleString('ko-KR')}개</span></header>
+                  <header className="panel-header"><div><span className="eyebrow">시설물 지점 중첩</span><h2>예상 구역 안 시설</h2></div><span className="panel-count">{filteredResultFacilities.length.toLocaleString('ko-KR')}개</span></header>
                   <label className="field"><span>시설명·주소 검색</span><input type="search" value={resultFacilityQuery} onChange={(event) => setResultFacilityQuery(event.target.value)} placeholder="시설명 또는 주소" /></label>
                   {resultSelectedFacility && <div className="results-selected-facility"><strong>{resultSelectedFacility.facility.name}</strong><span>{resultSelectedFacility.facility.type} · {resultSelectedFacility.facility.address}</span><small>시나리오 최대 침수심 {resultSelectedFacility.exposure.maxDepthM == null ? '미제공' : `${resultSelectedFacility.exposure.maxDepthM}m`}</small></div>}
                   <div className="results-facility-list">{filteredResultFacilities.length ? filteredResultFacilities.map(({ facility, exposure }) => <button key={facility.id} className={selectedResultFacilityId === facility.id ? 'is-selected' : ''} onClick={() => setSelectedResultFacilityId(facility.id)}><strong>{facility.name}</strong><span>{facility.type} · {facility.district}</span><small>{exposure.depthLabel || (exposure.maxDepthM == null ? '침수심 미제공' : `최대 ${exposure.maxDepthM}m`)}</small></button>) : <p className="results-empty">{resultLoading ? '조회 중입니다.' : '조건에 맞는 중첩 시설이 없습니다.'}</p>}</div>
@@ -842,11 +860,11 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
               </div>
 
               <article className="panel results-dong-panel">
-                <header className="panel-header"><div><span className="eyebrow">행정동·인구 중첩 분석</span><h2>행정동별 시나리오 중첩 면적</h2></div><span className="panel-count">{resultDongItems.length.toLocaleString('ko-KR')}개 행정동</span></header>
+                <header className="panel-header"><div><span className="eyebrow">행정동·인구 중첩 분석</span><h2>행정동별 예상 구역 중첩 면적</h2></div><span className="panel-count">{resultDongItems.length.toLocaleString('ko-KR')}개 행정동</span></header>
                 <div className="table-wrap"><table><thead><tr><th>구</th><th>행정동</th><th>중첩 면적</th><th>행정동 면적 비율</th><th>주민등록 인구</th><th>추정 노출인구</th><th>최대 침수심</th></tr></thead><tbody>{resultDongItems.map((row) => <tr key={row.adminCode}><td>{row.districtName || '-'}</td><td><strong>{row.adminName}</strong><small>{row.adminCode}</small></td><td>{row.hazardAreaSquareKm.toLocaleString('ko-KR', { maximumFractionDigits: 3 })}㎢</td><td>{row.hazardAreaPercent.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}%</td><td>{row.population.toLocaleString('ko-KR')}명</td><td>{row.estimatedExposedPopulation.toLocaleString('ko-KR')}명</td><td>{row.maxDepthM == null ? '-' : `${row.maxDepthM}m`}</td></tr>)}</tbody></table></div>
                 {!resultDongItems.length && <p className="results-empty">{resultLoading ? '행정동 결과를 불러오는 중입니다.' : '선택한 조건의 행정동 결과가 없습니다.'}</p>}
                 <p className="results-caveat">중첩 시설은 피해 확정 시설이 아닙니다. 추정 노출인구는 행정동 내 인구가 고르게 분포한다고 가정한 면적 비례 추정치이며 실제 침수·피해 인구를 뜻하지 않습니다. 지도 3종의 결과는 서로 겹칠 수 있어 합산하지 않습니다.</p>
-                <p className="results-source">출처: 홍수위험지도 정보제공포털 100년 빈도 SHP · 행정안전부 주민등록 인구({resultLayerSummary?.statisticMonth ?? '기준월 미확인'})</p>
+                <p className="results-source">출처: <a href={floodResultSourceUrls[resultLayer]} target="_blank" rel="noopener noreferrer">홍수위험지도 정보제공포털</a> 100년 빈도 SHP · 행정안전부 주민등록 인구({resultLayerSummary?.statisticMonth ?? '기준월 미확인'})</p>
               </article>
             </section>
           )}
