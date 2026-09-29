@@ -49,6 +49,8 @@ const historicalSourceLabels: Record<string, string> = {
   facility_aws: '고양시 AWS 시설',
   facility_rain: '고양시 강우센서',
   facility_snow: '고양시 적설계',
+  facility_level: '고양시 수위센서',
+  facility_level_daily_xls: '고양시 수위센서 일자료',
   kma_snow: '기상청 적설',
   hrfco: '한강홍수통제소',
   kwater: 'K-water',

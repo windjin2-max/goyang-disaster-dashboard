@@ -124,8 +124,21 @@ Deno.serve(async (request) => {
   }
 
   try {
-    let input: { action?: string; year?: number } = {}
+    let input: { action?: string; year?: number; address?: string } = {}
     try { input = await request.json() } catch { /* an empty body uses defaults */ }
+    if (input.action === 'geocode') {
+      const address = String(input.address ?? '').trim()
+      if (!/^경기(?:도)? 고양시 /.test(address) || address.length > 120) {
+        return jsonResponse({ ok: false, error: 'A Goyang address is required.' }, 400)
+      }
+      const accessToken = await createAccessToken(consumerKey, consumerSecret)
+      const url = new URL(`${SGIS_BASE_URL}/addr/geocodewgs84.json`)
+      url.searchParams.set('accessToken', accessToken)
+      url.searchParams.set('address', address)
+      url.searchParams.set('resultcount', '5')
+      const payload = await fetchJson(url)
+      return jsonResponse({ ok: true, address, result: payload.result })
+    }
     const year = Number(input.year ?? 2025)
     if (!Number.isInteger(year) || year < 2000 || year > 2100) {
       return jsonResponse({ ok: false, error: 'A valid SGIS source year is required.' }, 400)
