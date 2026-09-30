@@ -18,6 +18,7 @@ interface KakaoMapProps {
   disasterAreas?: DisasterArea[]
   populationDistribution?: PopulationDistribution | null
   riskDongAreas?: FloodResultMapArea[]
+  onRiskDongSelect?: (adminCode: string) => void
   layers?: DisasterLayerVisibility
   enableFloodWms?: boolean
 }
@@ -193,7 +194,7 @@ function pointColor(kind: DisasterMapPoint['kind']) {
   return '#7b61d1'
 }
 
-export default function KakaoMap({ facilities, selected, onSelect, allTypes, compact = false, searchRequest, searchRadiusKm = 1, highlightedFacilityIds, onAddressResolved, disasterPoints = [], disasterAreas = [], populationDistribution = null, riskDongAreas = emptyRiskDongAreas, layers = defaultLayers, enableFloodWms = true }: KakaoMapProps) {
+export default function KakaoMap({ facilities, selected, onSelect, allTypes, compact = false, searchRequest, searchRadiusKm = 1, highlightedFacilityIds, onAddressResolved, disasterPoints = [], disasterAreas = [], populationDistribution = null, riskDongAreas = emptyRiskDongAreas, onRiskDongSelect, layers = defaultLayers, enableFloodWms = true }: KakaoMapProps) {
   const boundaryClipId = `goyang-boundary-${useId().replace(/:/g, '')}`
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
@@ -540,6 +541,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
         kakao.maps.event.addListener(polygon, 'mouseover', () => polygon.setOptions({ fillOpacity: .78, strokeWeight: 2 }))
         kakao.maps.event.addListener(polygon, 'mouseout', () => polygon.setOptions({ fillOpacity: .57, strokeWeight: 1.3 }))
         kakao.maps.event.addListener(polygon, 'click', (event: any) => {
+          onRiskDongSelect?.(area.adminCode)
           riskDongInfoWindowRef.current?.close()
           const content = document.createElement('div')
           content.className = 'population-info-window'
@@ -576,7 +578,7 @@ export default function KakaoMap({ facilities, selected, onSelect, allTypes, com
       riskDongInfoWindowRef.current?.close()
       riskDongInfoWindowRef.current = null
     }
-  }, [riskDongAreas, mapReady])
+  }, [riskDongAreas, mapReady, onRiskDongSelect])
 
   useEffect(() => {
     const kakao = window.kakao

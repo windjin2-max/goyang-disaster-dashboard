@@ -442,7 +442,7 @@ tbody tr:hover { background: #f9fbfd; }
 .results-guide-grid strong { color: var(--navy-900); font-size: .73rem; }
 .results-guide-grid span { color: #52647a; font-size: .68rem; line-height: 1.55; }
 .results-guide > p { margin: 0; color: #52647a; font-size: .69rem; line-height: 1.6; }
-.results-filter-bar { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; align-items: end; gap: 12px; }
+.results-filter-bar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; align-items: end; gap: 12px; }
 .results-filter-bar .field { margin: 0; }
 .results-filter-bar .button { min-height: 41px; }
 .results-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
@@ -454,6 +454,31 @@ tbody tr:hover { background: #f9fbfd; }
 .results-main-grid { display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: 12px; min-height: 610px; }
 .results-map-wrap { min-width: 0; }
 .results-map-wrap .map-stage { height: 100%; min-height: 610px; }
+.results-review-panel { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.results-review-panel .panel-header { margin-bottom: 0; }
+.results-review-zone { display: grid; gap: 5px; padding: 12px; border-radius: 9px; background: #eff6ff; }
+.results-review-zone strong { color: var(--navy-900); font-size: .9rem; }
+.results-review-zone span, .results-review-zone small { color: #46647f; font-size: .7rem; line-height: 1.5; }
+.results-review-intro, .results-review-caveat, .results-table-help { margin: 0; color: var(--slate-500); font-size: .72rem; line-height: 1.6; }
+.results-review-caveat { margin-top: auto; padding: 10px; border-radius: 8px; background: #fff6e8; color: #74531d; }
+.results-function-list { display: grid; gap: 8px; }
+.results-function-list > div { padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.results-function-list > div > div { display: flex; justify-content: space-between; gap: 7px; align-items: baseline; }
+.results-function-list strong { font-size: .77rem; color: var(--navy-900); }
+.results-function-list span { white-space: nowrap; color: var(--blue-600); font-size: .7rem; font-weight: 700; }
+.results-function-list p { margin: 5px 0; color: #52647a; font-size: .7rem; line-height: 1.45; }
+.results-function-list small { color: var(--muted); font-size: .66rem; line-height: 1.45; }
+.results-dong-panel tr.is-selected { background: #edf6ff; }
+.results-dong-panel .results-table-help { margin: 0 0 12px; }
+.results-reference summary { cursor: pointer; color: var(--navy-900); font-weight: 700; font-size: .83rem; }
+.results-reference > p { margin: 10px 0; color: var(--muted); font-size: .72rem; line-height: 1.5; }
+.results-reference .field { display: inline-grid; min-width: 200px; margin: 0 10px 10px 0; }
+.results-reference .field input { min-height: 40px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+.results-reference-list { max-height: 300px; overflow-y: auto; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.results-reference-list button { display: grid; gap: 3px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; text-align: left; cursor: pointer; }
+.results-reference-list button:hover { border-color: var(--blue-500); background: var(--blue-100); }
+.results-reference-list strong { font-size: .76rem; }
+.results-reference-list span, .results-reference-list small { color: var(--muted); font-size: .68rem; }
 .results-facility-panel { display: flex; flex-direction: column; min-height: 0; }
 .results-facility-panel .field { margin: 0 0 11px; }
 .results-facility-list { min-height: 0; overflow-y: auto; display: grid; align-content: start; gap: 7px; }
@@ -526,7 +551,7 @@ tbody tr:hover { background: #f9fbfd; }
   .results-filter-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .results-main-grid { grid-template-columns: 1fr; }
   .results-map-wrap .map-stage { min-height: 540px; }
-  .results-facility-panel { max-height: 440px; }
+  .results-reference-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 560px) {
@@ -583,6 +608,7 @@ tbody tr:hover { background: #f9fbfd; }
   .results-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .results-kpi-grid article { padding: 12px; }
   .results-kpi-grid strong { font-size: 1rem; }
+  .results-reference-list { grid-template-columns: 1fr; }
 }
 
 @media print {
