@@ -87,6 +87,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .page-heading p { margin: 5px 0 0; color: var(--muted); font-size: .76rem; }
 .top-actions, .toolbar-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .content { padding: 20px 24px 28px; }
+.map-mode-tabs { display: inline-flex; gap: 4px; max-width: 100%; margin-bottom: 16px; padding: 4px; border: 1px solid var(--line); border-radius: 11px; background: #eef3f9; }
+.map-mode-tabs button { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 16px; border: 0; border-radius: 8px; background: transparent; color: #52667d; font: inherit; font-size: .82rem; font-weight: 650; cursor: pointer; }
+.map-mode-tabs button:hover { color: var(--blue-600); }
+.map-mode-tabs button.is-active { background: var(--surface); color: var(--blue-600); box-shadow: 0 2px 7px rgba(26,48,73,.12); }
+.map-mode-tabs button:focus-visible { outline: 2px solid var(--blue-600); outline-offset: 2px; }
 .view-stack { display: grid; gap: 14px; }
 .mobile-menu { display: none; border: 0; background: transparent; padding: 6px; }
 
@@ -525,6 +530,8 @@ tbody tr:hover { background: #f9fbfd; }
 }
 
 @media (max-width: 560px) {
+  .map-mode-tabs { display: flex; }
+  .map-mode-tabs button { flex: 1; padding-inline: 8px; }
   .auth-intro-copy h1 { font-size: 2rem; }
   .auth-card { padding: 26px 20px; }
   .top-actions .signout-button { display: inline-flex; }

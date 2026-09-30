@@ -168,6 +168,7 @@ function normalizeImportedRow(row: Record<string, unknown>, index: number, sourc
 
 export default function App({ onSignOut }: { onSignOut?: () => void | Promise<void> }) {
   const [view, setView] = useState<ViewName>('dashboard')
+  const [mapMode, setMapMode] = useState<'facilities' | 'history'>('facilities')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [facilities, setFacilities] = useState<Facility[]>([])
   const [dataInfo, setDataInfo] = useState({ sourceFile: '', generatedAt: '' })
@@ -462,6 +463,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
   }
   const goToMap = (nextFilters: Partial<Filters> = {}) => {
     setFilters({ ...emptyFilters, ...nextFilters })
+    setMapMode('facilities')
     setView('map')
   }
   const goToNearby = () => {
@@ -473,7 +475,8 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
     setAnalysisMetric('all')
     setAnalysisShowFacilities(false)
     setAnalysisShowFloodLayer(false)
-    setView('analysis')
+    setMapMode('history')
+    setView('map')
   }
   const goToResults = () => {
     setResultDistrict('')
@@ -597,7 +600,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
     register({
       name: 'filter_facility_map',
       title: '지도 시설 필터',
-      description: '지도 상황판으로 이동하고 시설 유형, 운영 상태, 행정구역, 담당 기관, 검색어 조건을 적용합니다.',
+      description: '통합 지도의 시설물 현황 보기로 이동하고 시설 유형, 운영 상태, 행정구역, 담당 기관, 검색어 조건을 적용합니다.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -639,8 +642,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
 
   const navigation = [
     { id: 'dashboard' as const, label: '통합 대시보드', icon: LayoutDashboard },
-    { id: 'map' as const, label: '지도 상황판', icon: MapIcon },
-    { id: 'analysis' as const, label: '재난 이력 분석', icon: CalendarRange },
+    { id: 'map' as const, label: '통합 지도', icon: MapIcon },
     { id: 'results' as const, label: '분석 결과', icon: Layers3 },
     { id: 'nearby' as const, label: '주변 시설물 검색', icon: LocateFixed },
     { id: 'facilities' as const, label: '시설물 관리', icon: ListChecks },
@@ -651,7 +653,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
       <aside className={`sidebar ${sidebarOpen ? 'is-open' : ''}`}>
         <button className="brand" onClick={() => { setView('dashboard'); setSidebarOpen(false) }} aria-label="통합 대시보드로 이동"><div className="brand-mark"><Siren size={21} /></div><div><strong>재난 예·경보시설물 통합관리</strong><span>고양시 상황판</span></div></button>
         <nav className="main-nav" aria-label="주요 화면">
-          {navigation.map(({ id, label, icon: Icon }) => <button key={id} className={view === id ? 'is-active' : ''} onClick={() => { if (id === 'map') goToMap(); else if (id === 'nearby') goToNearby(); else if (id === 'analysis') goToAnalysis(); else if (id === 'results') goToResults(); else setView(id); setSidebarOpen(false) }}><Icon size={19} /><span>{label}</span></button>)}
+          {navigation.map(({ id, label, icon: Icon }) => <button key={id} className={view === id ? 'is-active' : ''} onClick={() => { if (id === 'map') goToMap(); else if (id === 'nearby') goToNearby(); else if (id === 'results') goToResults(); else setView(id); setSidebarOpen(false) }}><Icon size={19} /><span>{label}</span></button>)}
         </nav>
         <div className="sidebar-status"><Database size={17} /><div><strong>Supabase 연결</strong><span>시설물과 변경 이력을 중앙 DB에 저장합니다.</span></div></div>
       </aside>
@@ -659,11 +661,12 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
       <main className="main-area">
         <header className="topbar">
           <button className="mobile-menu" onClick={() => setSidebarOpen((value) => !value)} aria-label="메뉴 열기">{sidebarOpen ? <X /> : <Menu />}</button>
-          <div className="page-heading"><h1>{navigation.find((item) => item.id === view)?.label}</h1><p>{view === 'analysis' ? `분석지역 경기도 고양시 · ${analysisStart}~${analysisEnd}` : view === 'results' ? '고양시 100년 빈도 예상 침수 시나리오 중첩 결과' : `${dataInfo.sourceFile || '시설물 데이터를 불러오는 중입니다'} · 기준일 ${dataInfo.generatedAt || '-'}`}</p></div>
-          <div className="top-actions">{view !== 'results' && <button className="button secondary" onClick={exportCsv}><Download size={17} />CSV 내보내기</button>}<button className="button primary" onClick={() => goToMap()}><MapPin size={17} />지도 열기</button>{onSignOut && <button className="button secondary signout-button" onClick={() => void onSignOut()}><LogOut size={17} />로그아웃</button>}</div>
+          <div className="page-heading"><h1>{navigation.find((item) => item.id === view)?.label}</h1><p>{view === 'map' && mapMode === 'history' ? `재난 이력 · 고양시 · ${analysisStart}~${analysisEnd}` : view === 'results' ? '고양시 100년 빈도 예상 침수 시나리오 중첩 결과' : `${dataInfo.sourceFile || '시설물 데이터를 불러오는 중입니다'} · 기준일 ${dataInfo.generatedAt || '-'}`}</p></div>
+          <div className="top-actions">{view !== 'results' && <button className="button secondary" onClick={exportCsv}><Download size={17} />CSV 내보내기</button>}{view !== 'map' && <button className="button primary" onClick={() => goToMap()}><MapPin size={17} />지도 열기</button>}{onSignOut && <button className="button secondary signout-button" onClick={() => void onSignOut()}><LogOut size={17} />로그아웃</button>}</div>
         </header>
 
         <div className="content">
+          {view === 'map' && <div className="map-mode-tabs" role="group" aria-label="통합 지도 보기 방식"><button type="button" aria-pressed={mapMode === 'facilities'} className={mapMode === 'facilities' ? 'is-active' : ''} onClick={() => goToMap()}><Building2 size={17} />시설물 현황</button><button type="button" aria-pressed={mapMode === 'history'} className={mapMode === 'history' ? 'is-active' : ''} onClick={goToAnalysis}><CalendarRange size={17} />재난 이력</button></div>}
           {view === 'dashboard' && (
             <section className="view-stack" aria-label="통합 대시보드">
               <article className="disaster-command-panel">
@@ -679,7 +682,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
                 </div>
                 <div className="source-status-row" aria-label="외부 API 연계 상태">
                   {historicalAnalysis.sources.length ? historicalAnalysis.sources.map((source) => <span key={source.source} className={`source-chip ${source.status === 'complete' ? 'live' : source.status === 'failed' ? 'error' : 'configured'}`} title={source.message}><i />{historicalSourceLabels[source.source] ?? source.source}</span>) : <span className="source-chip configured"><i />과거자료 초기 적재 대기</span>}
-                  <button className="text-button command-refresh" onClick={goToAnalysis}><CalendarRange size={14} />분석 화면 열기</button>
+                  <button className="text-button command-refresh" onClick={goToAnalysis}><CalendarRange size={14} />재난 이력 보기</button>
                 </div>
                 {historicalError && <p className="command-error">{historicalError}</p>}
               </article>
@@ -745,7 +748,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
             </section>
           )}
 
-          {view === 'analysis' && (
+          {view === 'map' && mapMode === 'history' && (
             <section className="historical-view" aria-label="재난 이력 분석">
               <div className="analysis-scope-bar">
                 <div><span className="eyebrow">분석지역 고정</span><h2>경기도 고양시</h2><p>덕양구·일산동구·일산서구 경계 내부 자료만 사용합니다.</p></div>
@@ -878,7 +881,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void | Promise<vo
             </section>
           )}
 
-          {view === 'map' && (
+          {view === 'map' && mapMode === 'facilities' && (
             <section className="map-layout" aria-label="지도 상황판">
               <aside className="filter-panel">
                 <div className="filter-title"><SlidersHorizontal size={18} /><h2>시설 검색·필터</h2></div>

@@ -44,7 +44,7 @@ export interface ChangeRecord {
   summary: string
 }
 
-export type ViewName = 'dashboard' | 'map' | 'analysis' | 'results' | 'nearby' | 'facilities'
+export type ViewName = 'dashboard' | 'map' | 'results' | 'nearby' | 'facilities'
 
 export type DisasterSourceId = 'weather' | 'hydrology' | 'kwater' | 'flood' | 'population'
 export type DisasterSourceState = 'live' | 'configured' | 'error'
